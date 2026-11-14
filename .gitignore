@@ -40,8 +40,23 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# local agent & test artifacts
+# local agent configs, specs, reports, & screenshots
 /kantor-agent/
 /.agents/
+/.claude/
+/.gemini/
+/tasks/
+/AGENTS.md
+/CLAUDE.md
+/PROJECT.md
+/SPEC.md
+/TEST_INFRA.md
+/notion-DESIGN.md
+/sctrukturfile.txt
+/*_REPORT*.md
+/*_AUDIT*.md
 *_screenshot*.png
+/screenshot-*.png
+/Screenshot*.png
+/Referensi.jpg
 
