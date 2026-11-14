@@ -15,7 +15,7 @@ import {
   RawMaterialEntry,
   CreateRawMaterialInput,
 } from '@/types/capex';
-import { calculateHPP, calculateMargin } from './utils';
+import { calculateHPP, calculateMargin, parseLocalDate } from './utils';
 
 // ============================================================================
 // Supabase Configuration Status Detection
@@ -227,6 +227,40 @@ export const orderService = {
     } catch (err) {
       console.error('Unexpected error fetching orders:', err);
       return [];
+    }
+  },
+
+  /**
+   * Fetches production orders and surfaces real query/network errors cleanly for UI retry states.
+   */
+  async getOrdersWithStatus(): Promise<{ orders: Order[]; error: string | null }> {
+    if (!supabase) {
+      return { orders: [], error: null };
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*, order_design_files(*)')
+        .order('queue_order', { ascending: true });
+
+      if (error) {
+        console.error('Error fetching orders from Supabase:', error);
+        return {
+          orders: [],
+          error: error.message || 'Gagal memuat pesanan dari database.',
+        };
+      }
+
+      return {
+        orders: (data as DbOrderRow[]).map(mapDbOrderToDomain),
+        error: null,
+      };
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Koneksi ke Supabase terganggu.';
+      console.error('Unexpected error fetching orders:', err);
+      return { orders: [], error: message };
     }
   },
 
@@ -726,8 +760,8 @@ export const orderService = {
     ];
 
     orders.forEach((o) => {
-      const date = new Date(o.orderDate || o.createdAt);
-      if (isNaN(date.getTime())) return;
+      const date = parseLocalDate(o.orderDate || o.createdAt);
+      if (!date) return;
       const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       const label = `${monthNames[date.getMonth()]} ${date.getFullYear()}`;
 

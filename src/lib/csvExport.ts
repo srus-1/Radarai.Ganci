@@ -1,5 +1,7 @@
 import { Order } from '@/types/order';
 import { CapexEntry, RawMaterialEntry } from '@/types/capex';
+import { paymentStatusMeta, productionStatusMeta } from './status';
+import { formatPercent } from './utils';
 
 /**
  * Escapes a CSV field adhering strictly to RFC 4180.
@@ -316,11 +318,11 @@ export function exportOrdersToExcel(orders: Order[], periodLabel = 'Semua Period
       <td class="num">${Number(o.omzet) || 0}</td>
       <td class="num">${Number(o.hppBreakdown?.totalHpp) || 0}</td>
       <td class="num">${Number(o.profit) || 0}</td>
-      <td class="num">${Number(o.marginPct) || 0}%</td>
-      <td>${escapeHtml(o.paymentStatus)}</td>
+      <td class="num">${formatPercent(Number(o.marginPct) || 0, 1)}</td>
+      <td>${escapeHtml(paymentStatusMeta(o.paymentStatus).label)}</td>
       <td class="num">${Number(o.dpAmount) || 0}</td>
       <td class="num">${Number(o.remainingPayment) || 0}</td>
-      <td>${escapeHtml(o.processStatus)}</td>
+      <td>${escapeHtml(productionStatusMeta(o.processStatus).label)}</td>
       <td>${escapeHtml(o.notes || '-')}</td>
     </tr>`
     )
@@ -328,7 +330,7 @@ export function exportOrdersToExcel(orders: Order[], periodLabel = 'Semua Period
 
   const body = `
   <table>
-    <tr><td colspan="19" class="title">LAPORAN PESANAN OWNER — EGANCI (MAFREND.ORDER)</td></tr>
+    <tr><td colspan="19" class="title">LAPORAN PESANAN OWNER — EGANCI (RADARAI.GANCI)</td></tr>
     <tr><td colspan="19" class="subtitle">Periode / Filter: ${escapeHtml(periodLabel)} | Total Data: ${safeOrders.length} Pesanan</td></tr>
     <tr><td colspan="19"></td></tr>
     <thead>
@@ -615,9 +617,9 @@ export function exportOrdersToPDF(
       <td class="right bold">${(Number(o.qty) || 0).toLocaleString('id-ID')}</td>
       <td class="right">${formatRpOwner(o.omzet)}</td>
       <td class="right">${formatRpOwner(o.hppBreakdown?.totalHpp ?? 0)}</td>
-      <td class="right profit">${formatRpOwner(o.profit)} (${Number(o.marginPct) || 0}%)</td>
-      <td>${escapeHtml(o.paymentStatus)}${o.remainingPayment > 0 ? `<br/><span style="color:#9a3412">Sisa: ${formatRpOwner(o.remainingPayment)}</span>` : ''}</td>
-      <td>${escapeHtml(o.processStatus)}</td>
+      <td class="right profit">${formatRpOwner(o.profit)} (${formatPercent(Number(o.marginPct) || 0, 1)})</td>
+      <td>${escapeHtml(paymentStatusMeta(o.paymentStatus).label)}${o.remainingPayment > 0 ? `<br/><span style="color:#9a3412">Sisa: ${formatRpOwner(o.remainingPayment)}</span>` : ''}</td>
+      <td>${escapeHtml(productionStatusMeta(o.processStatus).label)}</td>
       <td>${escapeHtml(o.notes || '-')}</td>
     </tr>`
     )
@@ -627,7 +629,7 @@ export function exportOrdersToPDF(
   <div class="header">
     <div>
       <h1>${escapeHtml(reportTitle)}</h1>
-      <p>eganci (Mafrend.Order) — Dokumen Resmi Owner | Filter: ${escapeHtml(periodLabel)}</p>
+      <p>eganci (Radarai.Ganci) — Dokumen Resmi Owner | Filter: ${escapeHtml(periodLabel)}</p>
     </div>
     <div style="text-align:right;font-size:10px;">
       <strong>Total Data: ${safeOrders.length} Pesanan</strong><br/>
@@ -649,7 +651,7 @@ export function exportOrdersToPDF(
     <div class="kpi-card kpi-mint">
       <div class="kpi-label">Laba Bersih Pesanan</div>
       <div class="kpi-val">${formatRpOwner(totalProfit)}</div>
-      <div class="kpi-sub">Rata-rata Margin: ${avgMargin}%</div>
+      <div class="kpi-sub">Margin gabungan: ${formatPercent(avgMargin, 1)}</div>
     </div>
     <div class="kpi-card kpi-peach">
       <div class="kpi-label">Sisa Piutang / DP</div>
@@ -681,13 +683,13 @@ export function exportOrdersToPDF(
         <td class="right">${totalQty.toLocaleString('id-ID')}</td>
         <td class="right">${formatRpOwner(totalOmzet)}</td>
         <td class="right">${formatRpOwner(totalHpp)}</td>
-        <td class="right">${formatRpOwner(totalProfit)} (${avgMargin}%)</td>
+        <td class="right">${formatRpOwner(totalProfit)} (${formatPercent(avgMargin, 1)})</td>
         <td colspan="3">Sisa Piutang: ${formatRpOwner(totalRemaining)}</td>
       </tr>
     </tbody>
   </table>
   <div class="footer-note">
-    <span>Laporan Eksekutif Owner — eganci (Mafrend.Order)</span>
+    <span>Laporan Eksekutif Owner — eganci (Radarai.Ganci)</span>
     <span>Gunakan opsi "Save as PDF" / "Simpan sebagai PDF" pada dialog cetak browser.</span>
   </div>`;
 
@@ -719,7 +721,7 @@ export function exportCapexToPDF(capex: CapexEntry[], periodLabel = 'Semua Perio
   <div class="header">
     <div>
       <h1>Laporan Belanja Modal (Capex) Owner</h1>
-      <p>eganci (Mafrend.Order) — Investasi Peralatan & Aset Workshop | Periode: ${escapeHtml(periodLabel)}</p>
+      <p>eganci (Radarai.Ganci) — Investasi Peralatan & Aset Workshop | Periode: ${escapeHtml(periodLabel)}</p>
     </div>
     <div style="text-align:right;font-size:11px;">
       <strong>Total Capex: ${formatRpOwner(totalAmount)}</strong><br/>
@@ -785,7 +787,7 @@ export function exportRawMaterialsToPDF(
   <div class="header">
     <div>
       <h1>Laporan Bahan Baku Berulang Owner</h1>
-      <p>eganci (Mafrend.Order) — Pasokan Rutin Workshop | Periode: ${escapeHtml(periodLabel)}</p>
+      <p>eganci (Radarai.Ganci) — Pasokan Rutin Workshop | Periode: ${escapeHtml(periodLabel)}</p>
     </div>
     <div style="text-align:right;font-size:11px;">
       <strong>Total Bahan Baku: ${formatRpOwner(totalAmount)}</strong><br/>

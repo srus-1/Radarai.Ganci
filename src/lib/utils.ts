@@ -6,9 +6,55 @@ export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));
 }
 
+const ID_MONTHS_SHORT = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'Mei',
+  'Jun',
+  'Jul',
+  'Agu',
+  'Sep',
+  'Okt',
+  'Nov',
+  'Des',
+] as const;
+
+const ID_MONTHS_FULL = [
+  'Januari',
+  'Februari',
+  'Maret',
+  'April',
+  'Mei',
+  'Juni',
+  'Juli',
+  'Agustus',
+  'September',
+  'Oktober',
+  'November',
+  'Desember',
+] as const;
+
 /**
- * Formats a number into Indonesian Rupiah currency string.
- * Example: 2500000 -> "Rp 2.500.000"
+ * Parses YYYY-MM-DD as a local calendar date so timezone offsets do not shift the day.
+ */
+export function parseLocalDate(dateStr: string): Date | null {
+  if (!dateStr) return null;
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr.trim());
+  if (dateOnly) {
+    const year = Number(dateOnly[1]);
+    const month = Number(dateOnly[2]) - 1;
+    const day = Number(dateOnly[3]);
+    const local = new Date(year, month, day);
+    return isNaN(local.getTime()) ? null : local;
+  }
+  const parsed = new Date(dateStr);
+  return isNaN(parsed.getTime()) ? null : parsed;
+}
+
+/**
+ * Formats a number into Indonesian Rupiah currency string ("Rp 6.000").
  */
 export function formatRp(amount: number): string {
   if (isNaN(amount) || amount === null || amount === undefined) {
@@ -25,35 +71,139 @@ export function formatRp(amount: number): string {
 }
 
 /**
- * Formats an ISO date string into Indonesian short date.
- * Example: "2026-10-24" -> "24 Okt 2026"
+ * Formats plain numeric counts with Indonesian dot thousands separator.
+ */
+export function formatNumberId(value: number, maxDecimals = 0): string {
+  if (isNaN(value) || value === null || value === undefined) return '0';
+  return new Intl.NumberFormat('id-ID', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: maxDecimals,
+  }).format(value);
+}
+
+/**
+ * Formats percentage using Indonesian comma decimal separator ("76,7%").
+ */
+export function formatPercent(
+  value: number,
+  decimals = 1,
+  options: { trimTrailingZero?: boolean } = {}
+): string {
+  if (isNaN(value) || value === null || value === undefined) return '0%';
+  const { trimTrailingZero = false } = options;
+  const formatted = new Intl.NumberFormat('id-ID', {
+    minimumFractionDigits: trimTrailingZero ? 0 : decimals,
+    maximumFractionDigits: decimals,
+  }).format(value);
+  return `${formatted}%`;
+}
+
+/**
+ * Formats quantity and lowercase unit ("12 pcs", "50 gram").
+ */
+export function formatUnitQty(qty: number, unit = 'pcs'): string {
+  const safeQty = isNaN(qty) || qty === null || qty === undefined ? 0 : qty;
+  const safeUnit = (unit || 'pcs').trim().toLowerCase();
+  return `${formatNumberId(safeQty)} ${safeUnit}`;
+}
+
+/**
+ * Formats an ISO date string into Indonesian short date ("24 Okt 2026").
  */
 export function formatDateShort(dateStr: string): string {
   if (!dateStr) return '-';
-  try {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return dateStr;
-    const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'Mei',
-      'Jun',
-      'Jul',
-      'Agu',
-      'Sep',
-      'Okt',
-      'Nov',
-      'Des',
-    ];
-    const day = d.getDate();
-    const month = months[d.getMonth()];
-    const year = d.getFullYear();
-    return `${day} ${month} ${year}`;
-  } catch {
-    return dateStr;
+  const d = parseLocalDate(dateStr);
+  if (!d) return dateStr;
+  return `${d.getDate()} ${ID_MONTHS_SHORT[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+/**
+ * Formats "YYYY-MM" into Indonesian month and year ("November 2026").
+ */
+export function formatMonthLabel(monthKey: string, short = false): string {
+  if (!monthKey || monthKey === 'ALL') return 'Semua periode';
+  const [y, m] = monthKey.split('-');
+  const idx = parseInt(m, 10) - 1;
+  if (!y || isNaN(idx) || idx < 0 || idx > 11) return monthKey;
+  const list = short ? ID_MONTHS_SHORT : ID_MONTHS_FULL;
+  return `${list[idx]} ${y}`;
+}
+
+/**
+ * Formats deadline relative to today while keeping overdue severity disabled for completed orders.
+ */
+export function formatRelativeDeadline(
+  deadlineStr: string,
+  isCompleted: boolean,
+  referenceDate: Date = new Date()
+): { label: string; tone: 'neutral' | 'amber' | 'red'; isOverdue: boolean; fullDate: string } {
+  const target = parseLocalDate(deadlineStr);
+  const fullDate = formatDateShort(deadlineStr);
+  if (!target) {
+    return { label: '-', tone: 'neutral', isOverdue: false, fullDate: '-' };
   }
+
+  if (isCompleted) {
+    return { label: fullDate, tone: 'neutral', isOverdue: false, fullDate };
+  }
+
+  const today = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate());
+  const dueDay = new Date(target.getFullYear(), target.getMonth(), target.getDate());
+  const diffDays = Math.round((dueDay.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diffDays < 0) {
+    return {
+      label: `Terlambat ${Math.abs(diffDays)} hr`,
+      tone: 'red',
+      isOverdue: true,
+      fullDate,
+    };
+  }
+  if (diffDays === 0) {
+    return { label: 'Hari ini', tone: 'amber', isOverdue: false, fullDate };
+  }
+  if (diffDays === 1) {
+    return { label: 'Besok', tone: 'amber', isOverdue: false, fullDate };
+  }
+  if (diffDays <= 7) {
+    return { label: `${diffDays} hr lagi`, tone: 'neutral', isOverdue: false, fullDate };
+  }
+
+  return { label: fullDate, tone: 'neutral', isOverdue: false, fullDate };
+}
+
+/**
+ * Validates and normalizes an Indonesian phone number for wa.me links.
+ * Returns null when phone is empty, placeholder, or too short.
+ */
+export function normalizePhoneToWa(phone: string | undefined | null): string | null {
+  if (!phone) return null;
+  const digits = phone.replace(/[^\d]/g, '');
+  if (digits.length < 9 || digits.length > 15) return null;
+  if (digits.startsWith('0')) {
+    return `62${digits.slice(1)}`;
+  }
+  if (digits.startsWith('8')) {
+    return `62${digits}`;
+  }
+  if (digits.startsWith('62') && digits.length >= 10) {
+    return digits;
+  }
+  return digits.length >= 10 ? digits : null;
+}
+
+export function buildWhatsAppUrl(phone: string | undefined | null, message?: string): string | null {
+  const waNumber = normalizePhoneToWa(phone);
+  if (!waNumber) return null;
+  if (!message) return `https://wa.me/${waNumber}`;
+  return `https://wa.me/${waNumber}?text=${encodeURIComponent(message)}`;
+}
+
+/**
+ * Normalizes raw material names when comparing unit prices without a separate material_id column.
+ */
+export function normalizeMaterialKey(name: string): string {
+  return (name || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
 /**
@@ -95,7 +245,7 @@ export function calculateMargin(
   const safeHpp = Math.max(0, hpp || 0);
   const profit = safeOmzet - safeHpp;
   const rawPct = safeOmzet > 0 ? (profit / safeOmzet) * 100 : 0;
-  const marginPct = Math.round(rawPct * 10) / 10; // e.g. 38.5%
+  const marginPct = Math.round(rawPct * 10) / 10;
 
   return {
     profit,

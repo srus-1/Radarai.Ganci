@@ -1,18 +1,19 @@
 'use client';
 
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import {
-  X,
-  UploadCloud,
-  FileImage,
   AlertCircle,
-  Eye,
-  Download,
-  Trash2,
   Check,
+  Download,
+  Eye,
+  FileImage,
+  Trash2,
+  UploadCloud,
+  X,
 } from 'lucide-react';
 import { useOrders } from '@/context/OrderContext';
 import { DesignFile } from '@/types/order';
+import ConfirmDialog from '@/components/shared/ConfirmDialog';
 
 export default function OrderDesignDrawer() {
   const {
@@ -25,16 +26,26 @@ export default function OrderDesignDrawer() {
   } = useOrders();
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
   const [isDragging, setIsDragging] = useState<boolean>(false);
+  const [pendingDeleteFile, setPendingDeleteFile] = useState<DesignFile | null>(null);
 
-  // Lock body scroll when drawer is open, restore on close/unmount
   useEffect(() => {
-    if (!activeDrawerOrder) return;
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = originalOverflow;
-    };
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+
+    if (activeDrawerOrder) {
+      if (!dialog.open) {
+        try {
+          dialog.showModal();
+        } catch {
+          // Ignore if already open
+        }
+      }
+    } else if (dialog.open) {
+      dialog.close();
+    }
   }, [activeDrawerOrder]);
 
   if (!activeDrawerOrder) return null;
@@ -52,248 +63,248 @@ export default function OrderDesignDrawer() {
         fileName: file.name,
         fileSize: file.size,
         fileType: ext,
-        fileUrl: fileUrl,
+        fileUrl,
         thumbnailUrl: ['PNG', 'JPG', 'JPEG', 'WEBP'].includes(ext) ? fileUrl : undefined,
         isReadyToPrint: false,
         uploadedAt: new Date().toISOString(),
       };
 
-      addDesignFile(activeDrawerOrder.id, newDesignFile);
+      void addDesignFile(activeDrawerOrder.id, newDesignFile);
     });
-  };
-
-  const onDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const onDragLeave = () => {
-    setIsDragging(false);
-  };
-
-  const onDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    handleFileUpload(e.dataTransfer.files);
   };
 
   const files = activeDrawerOrder.designFiles || [];
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="fixed inset-0 z-40 flex items-end sm:items-center justify-center sm:p-4 bg-black/40 backdrop-blur-xs overscroll-contain transition-opacity animate-in fade-in"
-    >
-      {/* Backdrop click to close */}
-      <div
-        className="fixed inset-0"
-        onClick={() => setActiveDrawerOrder(null)}
-        aria-hidden="true"
-      />
-
-      {/* Modal/Drawer Container: Bottom-Sheet (<640px) & Centered Modal (sm+) */}
-      <aside className="relative w-full sm:max-w-lg max-h-[92vh] sm:max-h-[90vh] bg-white rounded-t-2xl sm:rounded-xl overflow-hidden shadow-notion-modal flex flex-col z-10 border border-[#e5e3df] animate-fade-in-up">
-        {/* Mobile drag indicator pill */}
-        <div className="sm:hidden w-10 h-1 bg-[#c8c4be] rounded-full mx-auto my-2 shrink-0" />
-
-        {/* Sticky Header - Notion deep navy hero band */}
-        <div className="sticky top-0 z-20 shrink-0 bg-[#0a1530] text-white p-4 border-b border-[#1a2a52] flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="px-2 py-0.5 rounded-sm text-[10px] font-bold bg-[#5645d4] text-white shadow-xs">
-                {activeDrawerOrder.orderNumber}
-              </span>
-              <h3 className="text-sm font-semibold text-white">Galeri Desain</h3>
-            </div>
-            <p className="text-xs text-white/80 mt-0.5">
-              Pembeli: <strong className="text-white">{activeDrawerOrder.buyerName}</strong>
-            </p>
-          </div>
-          <button
-            onClick={() => setActiveDrawerOrder(null)}
-            className="p-1.5 min-h-[36px] min-w-[36px] flex items-center justify-center rounded-md text-white/75 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-            title="Tutup"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto overscroll-contain p-4 flex flex-col gap-4">
-          {/* File Upload Zone */}
-          <div
-            onDragOver={onDragOver}
-            onDragLeave={onDragLeave}
-            onDrop={onDrop}
-            onClick={() => fileInputRef.current?.click()}
-            className={`border border-dashed rounded-lg p-5 text-center cursor-pointer transition-all ${
-              isDragging
-                ? 'border-[#5645d4] bg-[#e6e0f5]/40'
-                : 'border-[#c8c4be] hover:border-[#5645d4] hover:bg-[#f6f5f4]'
-            }`}
-          >
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept=".cdr,.ai,.psd,.pdf,.png,.jpg,.jpeg,.svg"
-              className="hidden"
-              onChange={(e) => handleFileUpload(e.target.files)}
-            />
-            <div className="w-10 h-10 mx-auto rounded-md bg-[#f6f5f4] border border-[#e5e3df] flex items-center justify-center text-[#5645d4] mb-2">
-              <UploadCloud className="w-5 h-5" />
-            </div>
-            <p className="text-xs font-semibold text-[#1a1a1a]">
-              Unggah Berkas Desain
-            </p>
-            <p className="text-[11px] text-[#787671] mt-1">
-              Format CDR, AI, PSD, PDF, PNG, JPG.
-            </p>
-          </div>
-
-          {/* Files List */}
-          <div className="flex flex-col gap-2.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-[#787671] uppercase tracking-wider">
-                Daftar Berkas ({files.length})
-              </span>
-              <span className="text-xs text-[#5d5b54]">
-                {files.filter((f) => f.isReadyToPrint).length} Siap Cetak
-              </span>
-            </div>
-
-            {files.length === 0 ? (
-              <div className="p-6 text-center bg-[#f6f5f4] rounded-lg border border-[#e5e3df]">
-                <FileImage className="w-6 h-6 text-[#787671] mx-auto mb-1.5" />
-                <p className="text-xs text-[#787671]">
-                  Belum ada berkas desain.
-                </p>
+    <>
+      <dialog
+        ref={dialogRef}
+        aria-labelledby={titleId}
+        {...({ closedby: 'any' } as Record<string, string>)}
+        onCancel={(e) => {
+          e.preventDefault();
+          setActiveDrawerOrder(null);
+        }}
+        className="m-auto w-full sm:max-w-lg max-h-[90vh] rounded-t-xl sm:rounded-xl border border-[var(--border)] bg-[var(--surface)] p-0 text-[var(--text)] popover-shadow overflow-hidden"
+      >
+        <div className="flex flex-col max-h-[90vh]">
+          {/* Header */}
+          <div className="shrink-0 px-5 py-3.5 border-b border-[var(--border)] bg-[var(--surface)] flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h2 id={titleId} className="text-[16px] font-semibold text-[var(--text)]">
+                  Galeri desain
+                </h2>
+                <span className="inline-flex h-6 items-center rounded-full bg-[var(--accent-tint)] px-2 text-[12px] font-medium text-[var(--accent-ink)] tabular-nums">
+                  {activeDrawerOrder.orderNumber}
+                </span>
               </div>
-            ) : (
-              files.map((file) => {
-                const isImage = ['PNG', 'JPG', 'JPEG', 'WEBP'].includes(
-                  file.fileType.toUpperCase()
-                );
+              <p className="text-[12px] text-[var(--text-muted)] mt-0.5 truncate">
+                Customer: {activeDrawerOrder.buyerName}
+              </p>
+            </div>
 
-                return (
-                  <div
-                    key={file.id}
-                    className="p-3 bg-white rounded-lg border border-[#e5e3df] hover:border-[#c8c4be] shadow-xs flex flex-col gap-2 transition-all"
-                  >
-                    <div className="flex items-start gap-3">
-                      {/* Thumbnail or File Type Badge */}
-                      <div className="w-12 h-12 rounded-md bg-[#f6f5f4] border border-[#e5e3df] overflow-hidden flex items-center justify-center shrink-0">
-                        {isImage && file.fileUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={file.fileUrl}
-                            alt={file.fileName}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <span className="text-xs font-bold text-[#37352f] uppercase">
-                            {file.fileType}
-                          </span>
-                        )}
-                      </div>
+            <button
+              type="button"
+              onClick={() => setActiveDrawerOrder(null)}
+              aria-label="Tutup galeri desain"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text)] cursor-pointer"
+            >
+              <X className="w-4 h-4" aria-hidden="true" />
+            </button>
+          </div>
 
-                      {/* File Details */}
-                      <div className="flex-1 min-w-0">
-                        <h4
-                          className="text-xs font-semibold text-[#1a1a1a] truncate"
-                          title={file.fileName}
-                        >
-                          {file.fileName}
-                        </h4>
-                        <p className="text-[11px] text-[#787671] mt-0.5">
-                          {(file.fileSize / (1024 * 1024)).toFixed(2)} MB • {file.fileType}
-                        </p>
+          {/* Body */}
+          <div className="flex-1 overflow-y-auto overscroll-contain p-5 space-y-4">
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsDragging(true);
+              }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsDragging(false);
+                handleFileUpload(e.dataTransfer.files);
+              }}
+              className={`border border-dashed rounded-lg p-5 text-center transition-colors ${
+                isDragging
+                  ? 'border-[var(--accent)] bg-[var(--accent-tint)]/60'
+                  : 'border-[var(--border-strong)] hover:border-[var(--accent)] hover:bg-[var(--surface-muted)]/60'
+              }`}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept=".cdr,.ai,.psd,.pdf,.png,.jpg,.jpeg,.svg"
+                className="visually-hidden"
+                aria-label="Unggah berkas desain"
+                onChange={(e) => handleFileUpload(e.target.files)}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full flex flex-col items-center cursor-pointer"
+              >
+                <div className="w-9 h-9 rounded-lg bg-[var(--accent-tint)] text-[var(--accent-ink)] flex items-center justify-center mb-2">
+                  <UploadCloud className="w-4 h-4" aria-hidden="true" />
+                </div>
+                <span className="text-[13px] font-semibold text-[var(--text)]">
+                  Unggah berkas desain
+                </span>
+                <span className="text-[12px] text-[var(--text-muted)] mt-0.5">
+                  Format CDR, AI, PSD, PDF, PNG, JPG.
+                </span>
+              </button>
+            </div>
 
-                        {/* Ready to Print Toggle */}
-                        <div className="mt-2">
-                          <button
-                            onClick={() =>
-                              toggleDesignReady(activeDrawerOrder.id, file.id)
-                            }
-                            className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold transition-colors cursor-pointer border ${
-                              file.isReadyToPrint
-                                ? 'bg-[#d9f3e1] text-[#0d5220] border-[#0d5220]/20'
-                                : 'bg-[#fef7d6] text-[#793400] border-[#f9e79f]'
-                            }`}
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between text-[12px] text-[var(--text-muted)]">
+                <span className="font-medium">Daftar berkas ({files.length})</span>
+                <span className="tabular-nums">
+                  {files.filter((f) => f.isReadyToPrint).length} siap cetak
+                </span>
+              </div>
+
+              {files.length === 0 ? (
+                <div className="p-6 text-center bg-[var(--surface-muted)]/50 rounded-lg border border-[var(--border)]">
+                  <FileImage className="w-6 h-6 text-[var(--text-muted)] mx-auto mb-1.5" aria-hidden="true" />
+                  <p className="text-[13px] text-[var(--text-muted)]">Belum ada berkas desain.</p>
+                </div>
+              ) : (
+                files.map((file) => {
+                  const isImage = ['PNG', 'JPG', 'JPEG', 'WEBP'].includes(
+                    file.fileType.toUpperCase()
+                  );
+
+                  return (
+                    <div
+                      key={file.id}
+                      className="p-3 bg-[var(--surface)] rounded-lg border border-[var(--border)] flex flex-col gap-2.5"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="w-12 h-12 rounded-lg bg-[var(--surface-muted)] border border-[var(--border)] overflow-hidden flex items-center justify-center shrink-0">
+                          {isImage && file.fileUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={file.fileUrl}
+                              alt={file.fileName}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <span className="text-[12px] font-semibold text-[var(--text)]">
+                              {file.fileType}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <h3
+                            className="text-[13px] font-semibold text-[var(--text)] truncate"
+                            title={file.fileName}
                           >
-                            {file.isReadyToPrint ? (
-                              <>
-                                <Check className="w-3 h-3 stroke-[2.5]" />
-                                <span>Siap Cetak</span>
-                              </>
-                            ) : (
-                              <>
-                                <AlertCircle className="w-3 h-3 stroke-[2.5]" />
-                                <span>Perlu Setting</span>
-                              </>
-                            )}
-                          </button>
+                            {file.fileName}
+                          </h3>
+                          <p className="text-[12px] text-[var(--text-muted)] mt-0.5 tabular-nums">
+                            {(file.fileSize / (1024 * 1024)).toFixed(2).replace('.', ',')} MB ({file.fileType})
+                          </p>
+
+                          <div className="mt-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void toggleDesignReady(activeDrawerOrder.id, file.id)
+                              }
+                              className={`inline-flex h-6 items-center gap-1.5 px-2 rounded-full border text-[12px] font-medium cursor-pointer ${
+                                file.isReadyToPrint
+                                  ? 'bg-[var(--status-green-bg)] text-[var(--status-green-ink)] border-[var(--status-green-border)]'
+                                  : 'bg-[var(--status-amber-bg)] text-[var(--status-amber-ink)] border-[var(--status-amber-border)]'
+                              }`}
+                            >
+                              {file.isReadyToPrint ? (
+                                <>
+                                  <Check className="w-3 h-3" aria-hidden="true" />
+                                  <span>Siap cetak</span>
+                                </>
+                              ) : (
+                                <>
+                                  <AlertCircle className="w-3 h-3" aria-hidden="true" />
+                                  <span>Perlu setting</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    {/* Bottom Actions for File */}
-                    <div className="pt-2 border-t border-[#e5e3df] flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        {/* Inspection / Lightbox Button */}
+                      <div className="pt-2 border-t border-[var(--border)] flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setLightboxFile(file)}
+                            className="inline-flex min-h-[36px] items-center gap-1.5 px-3 text-[12px] font-medium text-[var(--text)] bg-[var(--surface-muted)] hover:bg-[var(--border)]/60 rounded-lg cursor-pointer"
+                          >
+                            <Eye className="w-3.5 h-3.5 text-[var(--accent-ink)]" aria-hidden="true" />
+                            <span>Inspeksi</span>
+                          </button>
+
+                          <a
+                            href={file.fileUrl}
+                            download={file.fileName}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex min-h-[36px] items-center gap-1.5 px-3 text-[12px] font-medium text-[var(--text)] bg-[var(--surface-muted)] hover:bg-[var(--border)]/60 rounded-lg"
+                          >
+                            <Download className="w-3.5 h-3.5 text-[var(--text-muted)]" aria-hidden="true" />
+                            <span>Unduh</span>
+                          </a>
+                        </div>
+
                         <button
-                          onClick={() => setLightboxFile(file)}
-                          className="inline-flex items-center justify-center gap-1.5 px-3 py-2 min-h-[40px] text-xs font-medium text-[#37352f] bg-[#f6f5f4] hover:bg-[#ede9e4] rounded-md transition-colors cursor-pointer"
+                          type="button"
+                          onClick={() => setPendingDeleteFile(file)}
+                          aria-label={`Hapus berkas ${file.fileName}`}
+                          title="Hapus berkas"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-[var(--text-muted)] hover:text-[var(--status-red-ink)] hover:bg-[var(--status-red-bg)] cursor-pointer"
                         >
-                          <Eye className="w-4 h-4 text-[#5645d4]" />
-                          <span>Inspeksi</span>
+                          <Trash2 className="w-4 h-4" aria-hidden="true" />
                         </button>
-
-                        {/* Download Button */}
-                        <a
-                          href={file.fileUrl}
-                          download={file.fileName}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center justify-center gap-1.5 px-3 py-2 min-h-[40px] text-xs font-medium text-[#37352f] bg-[#f6f5f4] hover:bg-[#ede9e4] rounded-md transition-colors"
-                        >
-                          <Download className="w-4 h-4 text-[#787671]" />
-                          <span>Unduh</span>
-                        </a>
                       </div>
-
-                      {/* Delete File Button */}
-                      <button
-                        onClick={() => {
-                          if (confirm(`Hapus file ${file.fileName}?`)) {
-                            deleteDesignFile(activeDrawerOrder.id, file.id);
-                          }
-                        }}
-                        className="p-2 min-h-[40px] min-w-[40px] flex items-center justify-center rounded-md text-[#787671] hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                        title="Hapus berkas"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
                     </div>
-                  </div>
-                );
-              })
-            )}
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="shrink-0 px-5 py-3 border-t border-[var(--border)] bg-[var(--surface-muted)]/40 flex items-center justify-between text-[12px] text-[var(--text-muted)]">
+            <span>Maksimal 50 MB per berkas.</span>
+            <button
+              type="button"
+              onClick={() => setActiveDrawerOrder(null)}
+              className="min-h-[36px] px-4 rounded-lg border border-[var(--control-border)] bg-[var(--surface)] text-[13px] font-medium text-[var(--text)] hover:bg-[var(--surface-muted)] cursor-pointer"
+            >
+              Tutup
+            </button>
           </div>
         </div>
+      </dialog>
 
-        {/* Sticky Footer */}
-        <div className="sticky bottom-0 z-20 shrink-0 p-3.5 border-t border-[#e5e3df] bg-[#f6f5f4] flex items-center justify-between text-xs text-[#787671]">
-          <span>Maksimal 50MB per berkas.</span>
-          <button
-            onClick={() => setActiveDrawerOrder(null)}
-            className="min-h-[40px] px-4 py-2 bg-[#1a1a1a] hover:bg-black text-white text-xs font-medium rounded-md transition-colors cursor-pointer flex items-center justify-center"
-          >
-            Tutup
-          </button>
-        </div>
-      </aside>
-    </div>
+      <ConfirmDialog
+        isOpen={Boolean(pendingDeleteFile)}
+        title="Hapus berkas desain?"
+        description={`Berkas "${pendingDeleteFile?.fileName ?? ''}" akan dihapus dari pesanan ${activeDrawerOrder.orderNumber}.`}
+        confirmLabel="Hapus berkas"
+        onCancel={() => setPendingDeleteFile(null)}
+        onConfirm={async () => {
+          if (pendingDeleteFile) {
+            await deleteDesignFile(activeDrawerOrder.id, pendingDeleteFile.id);
+          }
+          setPendingDeleteFile(null);
+        }}
+      />
+    </>
   );
 }

@@ -1,11 +1,11 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
-import Sidebar from '@/components/layout/Sidebar';
-import TopHeader from '@/components/layout/TopHeader';
-import SetupNoticeBanner from '@/components/shared/SetupNoticeBanner';
 import { OrderProvider } from '@/context/OrderContext';
 import { SidebarProvider } from '@/context/SidebarContext';
+import Sidebar from '@/components/layout/Sidebar';
+import SetupNoticeBanner from '@/components/shared/SetupNoticeBanner';
+import { ToastProvider } from '@/components/shared/ToastProvider';
 import OrderFormModal from '@/components/order/OrderFormModal';
 import OrderDesignDrawer from '@/components/order/OrderDesignDrawer';
 import LightboxModal from '@/components/shared/LightboxModal';
@@ -17,9 +17,15 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: 'Mafrend.Order',
+  title: 'Radarai.Ganci — Manajemen Produksi & Pesanan Workshop',
   description:
-    'Sistem Manajemen Produksi Sablon & Gantungan Kunci Custom, Kalkulasi HPP Otomatis, dan Inspeksi File Cetak',
+    'Aplikasi manajemen antrean sablon, gantungan kunci, pelunasan piutang, dan pengeluaran bahan baku.',
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({
@@ -28,33 +34,37 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="id" className={inter.variable}>
-      <body className="antialiased bg-[#ffffff] text-[#37352f] min-h-screen flex font-sans">
-        <OrderProvider>
-          <SidebarProvider>
-            {/* Left Sidebar (Desktop Resizable Rail & Mobile Drawer) */}
-            <Sidebar />
+    <html lang="id" className={inter.variable} suppressHydrationWarning>
+      <body
+        suppressHydrationWarning
+        className="antialiased bg-[var(--bg)] text-[var(--text)] min-h-screen flex font-sans"
+      >
+        <ToastProvider>
+          <OrderProvider>
+            <SidebarProvider>
+              <a
+                href="#page-main-heading"
+                className="visually-hidden fixed top-2 left-2 z-50 rounded-lg bg-[var(--surface)] border border-[var(--accent)] px-3 py-2 text-[13px] font-medium text-[var(--accent-ink)] popover-shadow"
+              >
+                Lewati ke konten utama
+              </a>
 
-            {/* Main App Container */}
-            <div className="flex-1 flex flex-col min-w-0 min-h-screen overflow-x-hidden bg-[#ffffff]">
-              {/* Top Setup Notice Banner when unconfigured */}
-              <SetupNoticeBanner />
+              <Sidebar />
 
-              {/* Sticky Global Top Header */}
-              <TopHeader />
+              <div className="flex-1 flex flex-col min-w-0 min-h-screen bg-[var(--bg)]">
+                <SetupNoticeBanner />
 
-              {/* Page Content View */}
-              <main className="flex-1 p-4 sm:p-6 md:p-8 max-w-7xl w-full mx-auto">
-                {children}
-              </main>
-            </div>
+                <main className="flex-1 w-full max-w-[1440px] mx-auto px-4 pt-4 pb-20 sm:px-6 sm:pt-5 md:pb-8">
+                  {children}
+                </main>
+              </div>
 
-            {/* Global Modal & Drawer Portals */}
-            <OrderFormModal />
-            <OrderDesignDrawer />
-            <LightboxModal />
-          </SidebarProvider>
-        </OrderProvider>
+              <OrderFormModal />
+              <OrderDesignDrawer />
+              <LightboxModal />
+            </SidebarProvider>
+          </OrderProvider>
+        </ToastProvider>
       </body>
     </html>
   );

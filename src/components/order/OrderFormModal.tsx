@@ -1,17 +1,11 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import {
-  X,
-  Calculator,
-  TrendingUp,
-  Package,
-  Save,
-  AlertTriangle,
-} from 'lucide-react';
+import React, { useEffect, useId, useRef, useState } from 'react';
+import { AlertTriangle, Calculator, Package, Save, TrendingUp, X } from 'lucide-react';
 import { useOrders } from '@/context/OrderContext';
-import { PaymentStatus, ProcessStatus, Order, CreateOrderInput } from '@/types/order';
-import { calculateHPP, calculateMargin, formatRp } from '@/lib/utils';
+import { CreateOrderInput, Order, PaymentStatus, ProcessStatus } from '@/types/order';
+import { calculateHPP, calculateMargin, formatPercent, formatRp } from '@/lib/utils';
+import { useToast } from '@/components/shared/ToastProvider';
 
 interface OrderFormContentProps {
   editingOrder: Order | null;
@@ -26,16 +20,41 @@ function OrderFormContent({
   createOrder,
   updateOrder,
 }: OrderFormContentProps) {
-  // Lock body scroll on mount, restore on unmount
+  const { showToast } = useToast();
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  const buyerNameId = useId();
+  const buyerPhoneId = useId();
+  const productNameId = useId();
+  const deadlineId = useId();
+  const specsId = useId();
+  const qtyId = useId();
+  const priceId = useId();
+  const hppBahanId = useId();
+  const hppTintaId = useId();
+  const hppKerjaId = useId();
+  const hppKemasanId = useId();
+  const hppOverheadId = useId();
+  const paymentStatusId = useId();
+  const dpAmountId = useId();
+  const processStatusId = useId();
+  const notesId = useId();
+
   useEffect(() => {
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (!dialog.open) {
+      try {
+        dialog.showModal();
+      } catch {
+        // Ignore if already open
+      }
+    }
     return () => {
-      document.body.style.overflow = originalOverflow;
+      if (dialog.open) dialog.close();
     };
   }, []);
 
-  // Form Fields initialized from editingOrder or defaults
   const [buyerName, setBuyerName] = useState<string>(() => editingOrder?.buyerName ?? '');
   const [buyerPhone, setBuyerPhone] = useState<string>(() => editingOrder?.buyerPhone ?? '');
   const [productName, setProductName] = useState<string>(() => editingOrder?.productName ?? '');
@@ -57,16 +76,19 @@ function OrderFormContent({
   );
   const [notes, setNotes] = useState<string>(() => editingOrder?.notes ?? '');
 
-  // HPP Breakdown Inputs (per pcs)
   const [bahanBaku, setBahanBaku] = useState<number>(() => editingOrder?.hppBreakdown.bahanBaku ?? 0);
-  const [tintaSablon, setTintaSablon] = useState<number>(() => editingOrder?.hppBreakdown.tintaSablon ?? 0);
-  const [tenagaKerja, setTenagaKerja] = useState<number>(() => editingOrder?.hppBreakdown.tenagaKerja ?? 0);
+  const [tintaSablon, setTintaSablon] = useState<number>(
+    () => editingOrder?.hppBreakdown.tintaSablon ?? 0
+  );
+  const [tenagaKerja, setTenagaKerja] = useState<number>(
+    () => editingOrder?.hppBreakdown.tenagaKerja ?? 0
+  );
   const [kemasan, setKemasan] = useState<number>(() => editingOrder?.hppBreakdown.kemasan ?? 0);
   const [overhead, setOverhead] = useState<number>(() => editingOrder?.hppBreakdown.overhead ?? 0);
 
   const [errorMsg, setErrorMsg] = useState<string>('');
+  const [saving, setSaving] = useState<boolean>(false);
 
-  // Real-time calculations (qty 0 => totals 0)
   const safeQty = Math.max(0, qty || 0);
   const safePrice = Math.max(0, pricePerPcs || 0);
   const totalOmzet = safeQty * safePrice;
@@ -85,10 +107,8 @@ function OrderFormContent({
 
   const { profit, marginPct } = calculateMargin(totalOmzet, totalHppDisplay);
 
-  // Select whole number on focus so typing replaces the default 0
   const selectOnFocus = (e: React.FocusEvent<HTMLInputElement>) => e.target.select();
 
-  // Strip non-digits and leading zeros so leading '0' can never stick in any field
   const handleNumericChange = (
     e: React.ChangeEvent<HTMLInputElement>,
     setter: React.Dispatch<React.SetStateAction<number>>
@@ -100,11 +120,11 @@ function OrderFormContent({
     setter(cleaned === '' ? 0 : Number(cleaned));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!buyerName.trim()) {
-      setErrorMsg('Nama pembeli wajib diisi.');
+      setErrorMsg('Nama customer wajib diisi.');
       return;
     }
     if (!productName.trim()) {
@@ -112,449 +132,526 @@ function OrderFormContent({
       return;
     }
     if (safeQty <= 0) {
-      setErrorMsg('Kuantitas pesanan minimal 1.');
+      setErrorMsg('Kuantitas pesanan minimal 1 pcs.');
       return;
     }
 
-    if (editingOrder) {
-      updateOrder(editingOrder.id, {
-        buyerName,
-        buyerPhone,
-        productName,
-        specs,
-        qty: safeQty,
-        pricePerPcs: safePrice,
-        deadline,
-        paymentStatus,
-        dpAmount: paymentStatus === 'DP' ? dpAmount : paymentStatus === 'LUNAS' ? totalOmzet : 0,
-        processStatus,
-        notes,
-        hppBreakdown: currentHpp,
-      });
-    } else {
-      createOrder({
-        orderDate: new Date().toISOString().split('T')[0],
-        deadline,
-        buyerName,
-        buyerPhone: buyerPhone || '08120000000',
-        productName,
-        specs: specs || 'Custom Sablon Presisi',
-        qty: safeQty,
-        pricePerPcs: safePrice,
-        hppBreakdown: currentHpp,
-        paymentStatus,
-        dpAmount: paymentStatus === 'DP' ? dpAmount : paymentStatus === 'LUNAS' ? totalOmzet : 0,
-        processStatus,
-        designFiles: [],
-        notes,
-      });
-    }
+    setSaving(true);
+    setErrorMsg('');
 
-    onClose();
+    try {
+      const normalizedDp =
+        paymentStatus === 'DP' ? dpAmount : paymentStatus === 'LUNAS' ? totalOmzet : 0;
+
+      if (editingOrder) {
+        await updateOrder(editingOrder.id, {
+          buyerName: buyerName.trim(),
+          buyerPhone: buyerPhone.trim(),
+          productName: productName.trim(),
+          specs: specs.trim(),
+          qty: safeQty,
+          pricePerPcs: safePrice,
+          deadline,
+          paymentStatus,
+          dpAmount: normalizedDp,
+          processStatus,
+          notes: notes.trim() || undefined,
+          hppBreakdown: currentHpp,
+        });
+        showToast({ message: `Pesanan ${editingOrder.orderNumber} diperbarui`, tone: 'success' });
+      } else {
+        await createOrder({
+          orderDate: new Date().toISOString().split('T')[0],
+          deadline,
+          buyerName: buyerName.trim(),
+          buyerPhone: buyerPhone.trim(),
+          productName: productName.trim(),
+          specs: specs.trim() || 'Custom Sablon Presisi',
+          qty: safeQty,
+          pricePerPcs: safePrice,
+          hppBreakdown: currentHpp,
+          paymentStatus,
+          dpAmount: normalizedDp,
+          processStatus,
+          designFiles: [],
+          notes: notes.trim() || undefined,
+        });
+        showToast({ message: 'Pesanan baru disimpan', tone: 'success' });
+      }
+      onClose();
+    } catch (err) {
+      setErrorMsg(
+        err instanceof Error ? err.message : 'Gagal menyimpan pesanan. Periksa koneksi lalu coba lagi.'
+      );
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-xs overscroll-contain transition-opacity"
+    <dialog
+      ref={dialogRef}
+      aria-labelledby={titleId}
+      {...({ closedby: 'any' } as Record<string, string>)}
+      onCancel={(e) => {
+        e.preventDefault();
+        onClose();
+      }}
+      className="m-auto w-full sm:max-w-3xl max-h-[92vh] rounded-t-xl sm:rounded-xl border border-[var(--border)] bg-[var(--surface)] p-0 text-[var(--text)] popover-shadow overflow-hidden"
     >
-      {/* Backdrop click to dismiss */}
-      <div className="fixed inset-0" onClick={onClose} aria-hidden="true" />
-
-      {/* Modal Container: Mobile Bottom-Sheet (<640px) & Centered Modal (sm+) */}
-      <div className="relative w-full sm:max-w-3xl bg-white rounded-t-2xl sm:rounded-xl shadow-notion-modal border-t sm:border border-[#e5e3df] flex flex-col max-h-[92vh] sm:max-h-[90vh] overflow-hidden animate-fade-in-up z-10">
-        {/* Mobile drag indicator pill */}
-        <div className="sm:hidden w-10 h-1 bg-[#c8c4be] rounded-full mx-auto my-2 shrink-0" />
-
-        {/* Sticky Header - Notion deep navy hero band */}
-        <div className="sticky top-0 z-20 shrink-0 px-5 py-3.5 sm:px-6 sm:py-4 bg-[#0a1530] border-b border-[#1a2a52] flex items-center justify-between text-white">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-[#5645d4] text-white flex items-center justify-center shadow-[0_4px_12px_rgba(86,69,212,0.4)]">
-              <Package className="w-4 h-4" />
+      <div className="flex flex-col max-h-[92vh]">
+        {/* Header */}
+        <div className="shrink-0 px-5 py-3.5 border-b border-[var(--border)] bg-[var(--surface)] flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--accent-tint)] text-[var(--accent-ink)]">
+              <Package className="w-4 h-4" aria-hidden="true" />
             </div>
-            <div>
-              <h3 className="text-base font-semibold text-white">
-                {editingOrder ? `Edit Pesanan #${editingOrder.orderNumber}` : 'Input Pesanan'}
-              </h3>
-              <p className="text-xs text-white/80">
-                Isi data order dan kalkulasi HPP otomatis.
+            <div className="min-w-0">
+              <h2 id={titleId} className="text-[16px] font-semibold text-[var(--text)] truncate">
+                {editingOrder ? `Edit pesanan ${editingOrder.orderNumber}` : 'Input pesanan'}
+              </h2>
+              <p className="text-[12px] text-[var(--text-muted)]">
+                Lengkapi data pesanan dan rincian biaya HPP per pcs.
               </p>
             </div>
           </div>
+
           <button
+            type="button"
             onClick={onClose}
-            className="p-1.5 min-h-[36px] min-w-[36px] flex items-center justify-center rounded-md text-white/75 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-            title="Tutup"
+            aria-label="Tutup form pesanan"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text)] cursor-pointer"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
 
-        {/* Scrollable Form Body */}
-        <form id="order-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto overscroll-contain p-5 sm:p-6 flex flex-col gap-5 sm:gap-6">
+        {/* Form Body */}
+        <form
+          id="order-form"
+          onSubmit={(e) => void handleSubmit(e)}
+          className="flex-1 overflow-y-auto overscroll-contain p-5 space-y-5"
+        >
           {errorMsg && (
-            <div className="p-3 bg-rose-50 border border-rose-200 rounded-md text-rose-700 text-xs flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 shrink-0" />
+            <div
+              role="alert"
+              className="p-3 rounded-lg bg-[var(--status-red-bg)] border border-[var(--status-red-border)] text-[var(--status-red-ink)] text-[13px] flex items-center gap-2"
+            >
+              <AlertTriangle className="w-4 h-4 shrink-0" aria-hidden="true" />
               <span>{errorMsg}</span>
             </div>
           )}
 
-          {/* Section 1: Data Pembeli & Produk */}
-          <div>
-            <h4 className="text-xs font-semibold text-[#787671] uppercase tracking-wider mb-3">
-              1. Data Pembeli
-            </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Section 1 */}
+          <section className="space-y-3">
+            <h3 className="text-[13px] font-semibold text-[var(--text)]">Data customer & produk</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
               <div>
-                <label className="block text-xs font-medium text-[#37352f] mb-1">
-                  Nama Pembeli <span className="text-rose-500">*</span>
+                <label
+                  htmlFor={buyerNameId}
+                  className="block text-[12px] font-medium text-[var(--text-muted)] mb-1"
+                >
+                  Nama customer <span className="text-[var(--status-red-ink)]">*</span>
                 </label>
                 <input
+                  id={buyerNameId}
                   type="text"
                   required
+                  autoFocus
                   value={buyerName}
                   onChange={(e) => setBuyerName(e.target.value)}
-                  placeholder="Nama pembeli atau instansi"
-                  className="w-full px-3 py-2 text-sm bg-white border border-[#c8c4be] rounded-md focus:outline-none focus:border-[#5645d4] focus:ring-1 focus:ring-[#5645d4]"
+                  placeholder="Nama customer"
+                  className="w-full h-9 px-3 text-[13px] bg-[var(--surface)] border border-[var(--control-border)] rounded-lg text-[var(--text)]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-[#37352f] mb-1">
+                <label
+                  htmlFor={buyerPhoneId}
+                  className="block text-[12px] font-medium text-[var(--text-muted)] mb-1"
+                >
                   No. WhatsApp
                 </label>
                 <input
-                  type="text"
+                  id={buyerPhoneId}
+                  type="tel"
                   value={buyerPhone}
                   onChange={(e) => setBuyerPhone(e.target.value)}
-                  placeholder="081234567890"
-                  className="w-full px-3 py-2 text-sm bg-white border border-[#c8c4be] rounded-md focus:outline-none focus:border-[#5645d4] focus:ring-1 focus:ring-[#5645d4]"
+                  placeholder="08xxxxxxxxxx"
+                  className="w-full h-9 px-3 text-[13px] bg-[var(--surface)] border border-[var(--control-border)] rounded-lg text-[var(--text)] tabular-nums"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-[#37352f] mb-1">
-                  Nama Produk <span className="text-rose-500">*</span>
+                <label
+                  htmlFor={productNameId}
+                  className="block text-[12px] font-medium text-[var(--text-muted)] mb-1"
+                >
+                  Nama produk <span className="text-[var(--status-red-ink)]">*</span>
                 </label>
                 <input
+                  id={productNameId}
                   type="text"
                   required
                   value={productName}
                   onChange={(e) => setProductName(e.target.value)}
-                  placeholder="Ganci Akrilik 2 Sisi 5x5 cm"
-                  className="w-full px-3 py-2 text-sm bg-white border border-[#c8c4be] rounded-md focus:outline-none focus:border-[#5645d4] focus:ring-1 focus:ring-[#5645d4]"
+                  placeholder="Ganci akrilik 2 sisi 5x5 cm"
+                  className="w-full h-9 px-3 text-[13px] bg-[var(--surface)] border border-[var(--control-border)] rounded-lg text-[var(--text)]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-[#37352f] mb-1">
-                  Target Deadline
+                <label
+                  htmlFor={deadlineId}
+                  className="block text-[12px] font-medium text-[var(--text-muted)] mb-1"
+                >
+                  Deadline produksi
                 </label>
                 <input
+                  id={deadlineId}
                   type="date"
                   value={deadline}
                   onChange={(e) => setDeadline(e.target.value)}
-                  className="w-full px-3 py-2 text-sm bg-white border border-[#c8c4be] rounded-md focus:outline-none focus:border-[#5645d4] focus:ring-1 focus:ring-[#5645d4]"
+                  className="w-full h-9 px-3 text-[13px] bg-[var(--surface)] border border-[var(--control-border)] rounded-lg text-[var(--text)] tabular-nums"
                 />
               </div>
 
               <div className="sm:col-span-2">
-                <label className="block text-xs font-medium text-[#37352f] mb-1">
-                  Spesifikasi Produk
+                <label
+                  htmlFor={specsId}
+                  className="block text-[12px] font-medium text-[var(--text-muted)] mb-1"
+                >
+                  Spesifikasi produk
                 </label>
                 <input
+                  id={specsId}
                   type="text"
                   value={specs}
                   onChange={(e) => setSpecs(e.target.value)}
-                  placeholder="Akrilik 3mm, Sablon 3 Warna"
-                  className="w-full px-3 py-2 text-sm bg-white border border-[#c8c4be] rounded-md focus:outline-none focus:border-[#5645d4] focus:ring-1 focus:ring-[#5645d4]"
+                  placeholder="Akrilik 3mm, sablon 3 warna"
+                  className="w-full h-9 px-3 text-[13px] bg-[var(--surface)] border border-[var(--control-border)] rounded-lg text-[var(--text)]"
                 />
               </div>
             </div>
-          </div>
+          </section>
 
-          {/* Section 2: Kuantitas & Harga Jual */}
-          <div>
-            <h4 className="text-xs font-semibold text-[#787671] uppercase tracking-wider mb-3">
-              2. Volume & Harga
-            </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {/* Section 2 */}
+          <section className="space-y-3">
+            <h3 className="text-[13px] font-semibold text-[var(--text)]">Volume & harga jual</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
               <div>
-                <label className="block text-xs font-medium text-[#37352f] mb-1">
-                  Kuantitas (Pcs)
+                <label
+                  htmlFor={qtyId}
+                  className="block text-[12px] font-medium text-[var(--text-muted)] mb-1"
+                >
+                  Kuantitas (pcs)
                 </label>
                 <input
+                  id={qtyId}
                   type="text"
                   inputMode="numeric"
-                  placeholder="0"
+                  placeholder="10"
                   value={qty > 0 ? String(qty) : ''}
                   onFocus={selectOnFocus}
                   onChange={(e) => handleNumericChange(e, setQty)}
-                  className="w-full px-3 py-2 text-sm font-semibold bg-white border border-[#c8c4be] rounded-md focus:outline-none focus:border-[#5645d4] focus:ring-1 focus:ring-[#5645d4]"
+                  className="w-full h-9 px-3 text-[13px] font-semibold bg-[var(--surface)] border border-[var(--control-border)] rounded-lg tabular-nums"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-[#37352f] mb-1">
-                  Harga Satuan (Rp)
+                <label
+                  htmlFor={priceId}
+                  className="block text-[12px] font-medium text-[var(--text-muted)] mb-1"
+                >
+                  Harga satuan (Rp)
                 </label>
                 <input
+                  id={priceId}
                   type="text"
                   inputMode="numeric"
-                  placeholder="0"
+                  placeholder="6000"
                   value={pricePerPcs > 0 ? String(pricePerPcs) : ''}
                   onFocus={selectOnFocus}
                   onChange={(e) => handleNumericChange(e, setPricePerPcs)}
-                  className="w-full px-3 py-2 text-sm font-semibold bg-white border border-[#c8c4be] rounded-md focus:outline-none focus:border-[#5645d4] focus:ring-1 focus:ring-[#5645d4]"
+                  className="w-full h-9 px-3 text-[13px] font-semibold bg-[var(--surface)] border border-[var(--control-border)] rounded-lg tabular-nums"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-[#37352f] mb-1">
-                  Total Omzet
-                </label>
-                <div className="px-3 py-2 text-sm font-bold text-[#5645d4] bg-[#e6e0f5]/40 border border-[#e5e3df] rounded-md">
+                <span className="block text-[12px] font-medium text-[var(--text-muted)] mb-1">
+                  Total omzet
+                </span>
+                <div className="h-9 px-3 flex items-center text-[14px] font-semibold text-[var(--accent-ink)] bg-[var(--accent-tint)] border border-[var(--border)] rounded-lg tabular-nums">
                   {formatRp(totalOmzet)}
                 </div>
               </div>
             </div>
-          </div>
+          </section>
 
-          {/* Section 3: Real-time Automatic HPP Calculator */}
-          <div className="p-4 bg-[#f6f5f4] rounded-lg border border-[#e5e3df]">
-            <div className="flex items-center gap-2 mb-3">
-              <Calculator className="w-4 h-4 text-[#5645d4]" />
-              <h4 className="text-xs font-semibold text-[#1a1a1a] uppercase tracking-wider">
-                3. Kalkulator HPP
-              </h4>
+          {/* Section 3: HPP Calculator */}
+          <section className="p-4 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)]/60 space-y-3">
+            <div className="flex items-center gap-2">
+              <Calculator className="w-4 h-4 text-[var(--accent-ink)]" aria-hidden="true" />
+              <h3 className="text-[13px] font-semibold text-[var(--text)]">Kalkulator HPP per pcs</h3>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
               <div>
-                <label className="block text-[11px] font-medium text-[#5d5b54] mb-1">
-                  Bahan Baku
+                <label
+                  htmlFor={hppBahanId}
+                  className="block text-[12px] font-medium text-[var(--text-muted)] mb-1"
+                >
+                  Bahan baku
                 </label>
                 <input
+                  id={hppBahanId}
                   type="text"
                   inputMode="numeric"
                   placeholder="0"
                   value={bahanBaku > 0 ? String(bahanBaku) : ''}
                   onFocus={selectOnFocus}
                   onChange={(e) => handleNumericChange(e, setBahanBaku)}
-                  className="w-full px-2.5 py-1.5 text-xs bg-white border border-[#c8c4be] rounded-md focus:outline-none focus:border-[#5645d4]"
+                  className="w-full h-8 px-2.5 text-[13px] bg-[var(--surface)] border border-[var(--control-border)] rounded-lg tabular-nums"
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] font-medium text-[#5d5b54] mb-1">
-                  Tinta Sablon
+                <label
+                  htmlFor={hppTintaId}
+                  className="block text-[12px] font-medium text-[var(--text-muted)] mb-1"
+                >
+                  Tinta sablon
                 </label>
                 <input
+                  id={hppTintaId}
                   type="text"
                   inputMode="numeric"
                   placeholder="0"
                   value={tintaSablon > 0 ? String(tintaSablon) : ''}
                   onFocus={selectOnFocus}
                   onChange={(e) => handleNumericChange(e, setTintaSablon)}
-                  className="w-full px-2.5 py-1.5 text-xs bg-white border border-[#c8c4be] rounded-md focus:outline-none focus:border-[#5645d4]"
+                  className="w-full h-8 px-2.5 text-[13px] bg-[var(--surface)] border border-[var(--control-border)] rounded-lg tabular-nums"
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] font-medium text-[#5d5b54] mb-1">
-                  Tenaga Kerja
+                <label
+                  htmlFor={hppKerjaId}
+                  className="block text-[12px] font-medium text-[var(--text-muted)] mb-1"
+                >
+                  Tenaga kerja
                 </label>
                 <input
+                  id={hppKerjaId}
                   type="text"
                   inputMode="numeric"
                   placeholder="0"
                   value={tenagaKerja > 0 ? String(tenagaKerja) : ''}
                   onFocus={selectOnFocus}
                   onChange={(e) => handleNumericChange(e, setTenagaKerja)}
-                  className="w-full px-2.5 py-1.5 text-xs bg-white border border-[#c8c4be] rounded-md focus:outline-none focus:border-[#5645d4]"
+                  className="w-full h-8 px-2.5 text-[13px] bg-[var(--surface)] border border-[var(--control-border)] rounded-lg tabular-nums"
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] font-medium text-[#5d5b54] mb-1">
+                <label
+                  htmlFor={hppKemasanId}
+                  className="block text-[12px] font-medium text-[var(--text-muted)] mb-1"
+                >
                   Kemasan
                 </label>
                 <input
+                  id={hppKemasanId}
                   type="text"
                   inputMode="numeric"
                   placeholder="0"
                   value={kemasan > 0 ? String(kemasan) : ''}
                   onFocus={selectOnFocus}
                   onChange={(e) => handleNumericChange(e, setKemasan)}
-                  className="w-full px-2.5 py-1.5 text-xs bg-white border border-[#c8c4be] rounded-md focus:outline-none focus:border-[#5645d4]"
+                  className="w-full h-8 px-2.5 text-[13px] bg-[var(--surface)] border border-[var(--control-border)] rounded-lg tabular-nums"
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] font-medium text-[#5d5b54] mb-1">
+                <label
+                  htmlFor={hppOverheadId}
+                  className="block text-[12px] font-medium text-[var(--text-muted)] mb-1"
+                >
                   Overhead
                 </label>
                 <input
+                  id={hppOverheadId}
                   type="text"
                   inputMode="numeric"
                   placeholder="0"
                   value={overhead > 0 ? String(overhead) : ''}
                   onFocus={selectOnFocus}
                   onChange={(e) => handleNumericChange(e, setOverhead)}
-                  className="w-full px-2.5 py-1.5 text-xs bg-white border border-[#c8c4be] rounded-md focus:outline-none focus:border-[#5645d4]"
+                  className="w-full h-8 px-2.5 text-[13px] bg-[var(--surface)] border border-[var(--control-border)] rounded-lg tabular-nums"
                 />
               </div>
             </div>
 
-            {/* Live Profit & Margin Indicator Box */}
-            <div className="mt-4 p-3.5 bg-white rounded-md border border-[#e5e3df] grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+            <div className="p-3 bg-[var(--surface)] rounded-lg border border-[var(--border)] grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div>
-                <span className="text-[10px] text-[#787671] font-medium">HPP per Pcs</span>
-                <p className="text-xs font-semibold text-[#1a1a1a]">
+                <span className="block text-[12px] text-[var(--text-muted)]">HPP per pcs</span>
+                <p className="text-[13px] font-semibold text-[var(--text)] tabular-nums">
                   {formatRp(currentHpp.totalHppPerPcs)}
                 </p>
               </div>
-
               <div>
-                <span className="text-[10px] text-[#787671] font-medium">Total HPP ({safeQty} pcs)</span>
-                <p className="text-xs font-semibold text-[#1a1a1a]">
+                <span className="block text-[12px] text-[var(--text-muted)]">
+                  Total HPP ({safeQty} pcs)
+                </span>
+                <p className="text-[13px] font-semibold text-[var(--text)] tabular-nums">
                   {formatRp(totalHppDisplay)}
                 </p>
               </div>
-
               <div>
-                <span className="text-[10px] text-[#787671] font-medium">Estimasi Laba</span>
-                <p className="text-xs font-bold text-[#0d5220]">
+                <span className="block text-[12px] text-[var(--text-muted)]">Estimasi laba</span>
+                <p className="text-[13px] font-semibold text-[var(--text)] tabular-nums">
                   {formatRp(profit)}
                 </p>
               </div>
-
               <div>
-                <span className="text-[10px] text-[#787671] font-medium">Margin Profit</span>
-                <div className="flex items-center justify-center gap-1 mt-0.5">
+                <span className="block text-[12px] text-[var(--text-muted)]">Margin</span>
+                <div className="mt-0.5">
                   <span
-                    className={`inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-semibold ${
+                    className={`inline-flex items-center gap-1 px-2 h-6 rounded-full border text-[12px] font-medium tabular-nums ${
                       marginPct >= 30
-                        ? 'bg-[#d9f3e1] text-[#0d5220]'
+                        ? 'bg-[var(--status-green-bg)] text-[var(--status-green-ink)] border-[var(--status-green-border)]'
                         : marginPct >= 15
-                        ? 'bg-[#dcecfa] text-[#004480]'
-                        : 'bg-[#ffe8d4] text-[#793400]'
+                          ? 'bg-[var(--status-blue-bg)] text-[var(--status-blue-ink)] border-[var(--status-blue-border)]'
+                          : 'bg-[var(--status-amber-bg)] text-[var(--status-amber-ink)] border-[var(--status-amber-border)]'
                     }`}
                   >
-                    <TrendingUp className="w-3 h-3 mr-0.5" />
-                    {marginPct}%
+                    <TrendingUp className="w-3 h-3" aria-hidden="true" />
+                    {formatPercent(marginPct, 1)}
                   </span>
                 </div>
               </div>
             </div>
-          </div>
+          </section>
 
-          {/* Section 4: Pembayaran & Alur Proses */}
-          <div>
-            <h4 className="text-xs font-semibold text-[#787671] uppercase tracking-wider mb-3">
-              4. Status Pesanan
-            </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {/* Section 4 */}
+          <section className="space-y-3">
+            <h3 className="text-[13px] font-semibold text-[var(--text)]">Status & catatan</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
               <div>
-                <label className="block text-xs font-medium text-[#37352f] mb-1">
-                  Status Pembayaran
+                <label
+                  htmlFor={paymentStatusId}
+                  className="block text-[12px] font-medium text-[var(--text-muted)] mb-1"
+                >
+                  Status pembayaran
                 </label>
                 <select
+                  id={paymentStatusId}
                   value={paymentStatus}
                   onChange={(e) => setPaymentStatus(e.target.value as PaymentStatus)}
-                  className="w-full px-3 py-2 text-sm bg-white border border-[#c8c4be] rounded-md focus:outline-none focus:border-[#5645d4]"
+                  className="w-full h-9 px-3 text-[13px] bg-[var(--surface)] border border-[var(--control-border)] rounded-lg"
                 >
                   <option value="LUNAS">Lunas</option>
-                  <option value="DP">DP (Uang Muka)</option>
-                  <option value="BELUM_LUNAS">Belum Lunas</option>
+                  <option value="DP">DP (uang muka)</option>
+                  <option value="BELUM_LUNAS">Belum lunas</option>
                 </select>
               </div>
 
               {paymentStatus === 'DP' ? (
                 <div>
-                  <label className="block text-xs font-medium text-[#37352f] mb-1">
+                  <label
+                    htmlFor={dpAmountId}
+                    className="block text-[12px] font-medium text-[var(--text-muted)] mb-1"
+                  >
                     Nominal DP (Rp)
                   </label>
                   <input
+                    id={dpAmountId}
                     type="text"
                     inputMode="numeric"
                     placeholder="0"
                     value={dpAmount > 0 ? String(dpAmount) : ''}
                     onFocus={selectOnFocus}
                     onChange={(e) => handleNumericChange(e, setDpAmount)}
-                    className="w-full px-3 py-2 text-sm font-semibold bg-white border border-[#c8c4be] rounded-md focus:outline-none focus:border-[#5645d4]"
+                    className="w-full h-9 px-3 text-[13px] font-semibold bg-[var(--surface)] border border-[var(--control-border)] rounded-lg tabular-nums"
                   />
-                  <p className="text-[11px] text-[#787671] mt-1">
+                  <p className="text-[12px] text-[var(--text-muted)] mt-1 tabular-nums">
                     Sisa: {formatRp(Math.max(0, totalOmzet - dpAmount))}
                   </p>
                 </div>
               ) : (
                 <div>
-                  <label className="block text-xs font-medium text-[#37352f] mb-1">
-                    Sisa Piutang
-                  </label>
-                  <div className="px-3 py-2 text-sm font-semibold bg-[#f6f5f4] text-[#37352f] rounded-md border border-[#e5e3df]">
+                  <span className="block text-[12px] font-medium text-[var(--text-muted)] mb-1">
+                    Sisa piutang
+                  </span>
+                  <div className="h-9 px-3 flex items-center text-[13px] font-semibold bg-[var(--surface-muted)] text-[var(--text)] rounded-lg border border-[var(--border)] tabular-nums">
                     {paymentStatus === 'LUNAS' ? 'Rp 0' : formatRp(totalOmzet)}
                   </div>
                 </div>
               )}
 
               <div>
-                <label className="block text-xs font-medium text-[#37352f] mb-1">
-                  Status Produksi
+                <label
+                  htmlFor={processStatusId}
+                  className="block text-[12px] font-medium text-[var(--text-muted)] mb-1"
+                >
+                  Status produksi
                 </label>
                 <select
+                  id={processStatusId}
                   value={processStatus}
                   onChange={(e) => setProcessStatus(e.target.value as ProcessStatus)}
-                  className="w-full px-3 py-2 text-sm bg-white border border-[#c8c4be] rounded-md focus:outline-none focus:border-[#5645d4]"
+                  className="w-full h-9 px-3 text-[13px] bg-[var(--surface)] border border-[var(--control-border)] rounded-lg"
                 >
                   <option value="ANTREAN">1. Antrean</option>
-                  <option value="SETTING_DESAIN">2. Setting Desain</option>
-                  <option value="PROSES_CETAK">3. Proses Cetak</option>
+                  <option value="SETTING_DESAIN">2. Setting desain</option>
+                  <option value="PROSES_CETAK">3. Proses cetak</option>
                   <option value="FINISHING">4. Finishing</option>
-                  <option value="SIAP_KIRIM">5. Siap Kirim</option>
+                  <option value="SIAP_KIRIM">5. Siap kirim</option>
                   <option value="SELESAI">6. Selesai</option>
                 </select>
               </div>
 
               <div className="sm:col-span-3">
-                <label className="block text-xs font-medium text-[#37352f] mb-1">
-                  Catatan Produksi
+                <label
+                  htmlFor={notesId}
+                  className="block text-[12px] font-medium text-[var(--text-muted)] mb-1"
+                >
+                  Catatan produksi
                 </label>
                 <textarea
+                  id={notesId}
                   rows={2}
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="Catatan pengerjaan sablon atau finishing"
-                  className="w-full px-3 py-2 text-sm bg-white border border-[#c8c4be] rounded-md focus:outline-none focus:border-[#5645d4]"
+                  className="w-full px-3 py-2 text-[13px] bg-[var(--surface)] border border-[var(--control-border)] rounded-lg"
                 />
               </div>
             </div>
-          </div>
-
+          </section>
         </form>
 
-        {/* Sticky Footer Action Bar */}
-        <div className="sticky bottom-0 z-20 shrink-0 px-5 py-3 sm:px-6 sm:py-3.5 bg-white/95 backdrop-blur-xs border-t border-[#e5e3df] flex items-center justify-end gap-3 shadow-[0_-4px_12px_rgba(15,15,15,0.04)]">
+        {/* Footer */}
+        <div className="shrink-0 px-5 py-3 bg-[var(--surface)] border-t border-[var(--border)] flex items-center justify-end gap-2">
           <button
             type="button"
             onClick={onClose}
-            className="min-h-[40px] px-4 py-2 text-sm font-medium text-[#37352f] hover:bg-[#e5e3df] rounded-md transition-colors cursor-pointer flex items-center justify-center"
+            className="min-h-[36px] px-4 rounded-lg border border-[var(--control-border)] bg-[var(--surface)] text-[13px] font-medium text-[var(--text)] hover:bg-[var(--surface-muted)] cursor-pointer"
           >
             Batal
           </button>
           <button
             type="submit"
             form="order-form"
-            className="min-h-[40px] px-4 py-2 text-sm font-medium text-white bg-[#5645d4] hover:bg-[#4534b3] rounded-md shadow-xs flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer"
+            disabled={saving}
+            className="min-h-[36px] px-4 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-[13px] font-medium text-white flex items-center gap-1.5 disabled:opacity-60 cursor-pointer"
           >
-            <Save className="w-4 h-4" />
-            <span>Simpan Pesanan</span>
+            <Save className="w-4 h-4" aria-hidden="true" />
+            <span>{saving ? 'Menyimpan...' : 'Simpan pesanan'}</span>
           </button>
         </div>
       </div>
-    </div>
+    </dialog>
   );
 }
 

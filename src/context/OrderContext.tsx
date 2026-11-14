@@ -7,7 +7,16 @@ import React, {
   useState,
   useCallback,
   useMemo,
+  useRef,
+  useSyncExternalStore,
 } from 'react';
+
+const subscribeNoop = () => () => {};
+const getClientCurrentMonth = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+};
+const getServerCurrentMonth = () => '';
 import {
   Order,
   CreateOrderInput,
@@ -53,6 +62,8 @@ export function getOrderMonth(
 export interface OrderContextType {
   orders: Order[];
   loading: boolean;
+  fetchError: string | null;
+  refreshOrders: () => Promise<void>;
   searchQuery: string;
   setSearchQuery: (q: string) => void;
   filterTab: FilterTab;
@@ -72,6 +83,8 @@ export interface OrderContextType {
   createOrder: (orderData: CreateOrderInput) => Promise<Order>;
   updateOrder: (id: string, updates: Partial<Order>) => Promise<Order | null>;
   deleteOrder: (id: string) => Promise<boolean>;
+  softDeleteOrder: (order: Order, undoWindowMs?: number) => () => void;
+  bulkDeleteOrders: (ids: string[]) => Promise<boolean>;
   updateProcessStatus: (id: string, status: ProcessStatus) => Promise<void>;
   updatePaymentStatus: (id: string, status: PaymentStatus) => Promise<void>;
   reorderQueue: (orderedIds: string[]) => Promise<void>;
@@ -100,6 +113,7 @@ const OrderContext = createContext<OrderContextType | undefined>(undefined);
 export function OrderProvider({ children }: { children: React.ReactNode }) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [filterTab, setFilterTab] = useState<FilterTab>('ALL');
   const [dateFilter, setDateFilter] = useState<string>('');
@@ -110,6 +124,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [selectedMonthState, setSelectedMonthState] = useState<string>('');
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
+  const pendingDeletesRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   const clearError = useCallback(() => setError(null), []);
 
@@ -143,7 +158,33 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // Initial load: async with unmount guard (eliminates react-hooks/set-state-in-effect line 64)
+  const refreshOrders = useCallback(async () => {
+    if (!configStatus.isConfigured) {
+      setOrders([]);
+      setFetchError(null);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setFetchError(null);
+    try {
+      const res = await orderService.getOrdersWithStatus();
+      if (res.error) {
+        setFetchError(res.error);
+        setOrders([]);
+      } else {
+        setOrders(res.orders || []);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Gagal memuat data pesanan.';
+      setFetchError(msg);
+      setOrders([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [configStatus.isConfigured]);
+
   useEffect(() => {
     let isMounted = true;
 
@@ -152,18 +193,26 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         if (!configStatus.isConfigured) {
           if (isMounted) {
             setOrders([]);
+            setFetchError(null);
             setLoading(false);
           }
           return;
         }
 
-        const data = await Promise.resolve(orderService.getOrders());
+        const res = await orderService.getOrdersWithStatus();
         if (isMounted) {
-          setOrders(data || []);
+          if (res.error) {
+            setFetchError(res.error);
+            setOrders([]);
+          } else {
+            setFetchError(null);
+            setOrders(res.orders || []);
+          }
         }
       } catch (err) {
         console.error('Failed to load initial orders:', err);
         if (isMounted) {
+          setFetchError(err instanceof Error ? err.message : 'Gagal memuat pesanan.');
           setOrders([]);
         }
       } finally {
@@ -376,6 +425,80 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         setOrders(previousOrders);
         const msg = err instanceof Error ? err.message : 'Gagal menghapus pesanan.';
         setError(`Gagal menghapus pesanan. ${msg}`);
+        throw err;
+      }
+    },
+    [orders, activeDrawerOrderId]
+  );
+
+  // Soft delete with 8-second undo grace window before committing DB delete
+  const handleSoftDeleteOrder = useCallback(
+    (targetOrder: Order, undoWindowMs = 8000): (() => void) => {
+      const id = targetOrder.id;
+      const existingTimer = pendingDeletesRef.current.get(id);
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+        pendingDeletesRef.current.delete(id);
+      }
+
+      if (activeDrawerOrderId === id) {
+        setActiveDrawerOrderId(null);
+      }
+      setSelectedOrderIds((prev) => prev.filter((orderId) => orderId !== id));
+      setOrders((prev) => prev.filter((o) => o.id !== id));
+
+      const timer = setTimeout(async () => {
+        pendingDeletesRef.current.delete(id);
+        try {
+          await Promise.resolve(orderService.deleteOrder(id));
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : 'Gagal menghapus pesanan.';
+          setOrders((current) =>
+            current.some((o) => o.id === id)
+              ? current
+              : [...current, targetOrder].sort((a, b) => (a.queueOrder || 0) - (b.queueOrder || 0))
+          );
+          setError(`Gagal menghapus pesanan ${targetOrder.orderNumber}. ${msg}`);
+        }
+      }, undoWindowMs);
+
+      pendingDeletesRef.current.set(id, timer);
+
+      return () => {
+        const activeTimer = pendingDeletesRef.current.get(id);
+        if (activeTimer) {
+          clearTimeout(activeTimer);
+          pendingDeletesRef.current.delete(id);
+        }
+        setOrders((current) =>
+          current.some((o) => o.id === id)
+            ? current
+            : [...current, targetOrder].sort((a, b) => (a.queueOrder || 0) - (b.queueOrder || 0))
+        );
+      };
+    },
+    [activeDrawerOrderId]
+  );
+
+  const handleBulkDeleteOrders = useCallback(
+    async (ids: string[]): Promise<boolean> => {
+      if (ids.length === 0) return true;
+      const previousOrders = orders;
+      const idSet = new Set(ids);
+
+      if (activeDrawerOrderId && idSet.has(activeDrawerOrderId)) {
+        setActiveDrawerOrderId(null);
+      }
+      setSelectedOrderIds((prev) => prev.filter((orderId) => !idSet.has(orderId)));
+      setOrders((prev) => prev.filter((o) => !idSet.has(o.id)));
+
+      try {
+        await Promise.all(ids.map((id) => Promise.resolve(orderService.deleteOrder(id))));
+        return true;
+      } catch (err: unknown) {
+        setOrders(previousOrders);
+        const msg = err instanceof Error ? err.message : 'Gagal menghapus pesanan terpilih.';
+        setError(`Gagal menghapus pesanan terpilih. ${msg}`);
         throw err;
       }
     },
@@ -601,15 +724,12 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     return Array.from(set).sort((a, b) => b.localeCompare(a));
   }, [orders]);
 
-  // Client-only current month resolved in useEffect to comply with Next.js 16 cacheComponents prerendering
-  const [clientCurrentMonth, setClientCurrentMonth] = useState<string>('');
-
-  useEffect(() => {
-    const now = new Date();
-    setClientCurrentMonth(
-      `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-    );
-  }, []);
+  // Client-only current month resolved without effect cascade for Next.js 16 cacheComponents
+  const clientCurrentMonth = useSyncExternalStore(
+    subscribeNoop,
+    getClientCurrentMonth,
+    getServerCurrentMonth
+  );
 
   // Default month: current month if in available months, else latest available month, else client current month
   const defaultMonth = useMemo(() => {
@@ -655,6 +775,8 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     () => ({
       orders,
       loading,
+      fetchError,
+      refreshOrders,
       searchQuery,
       setSearchQuery,
       filterTab,
@@ -674,6 +796,8 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       createOrder: handleCreateOrder,
       updateOrder: handleUpdateOrder,
       deleteOrder: handleDeleteOrder,
+      softDeleteOrder: handleSoftDeleteOrder,
+      bulkDeleteOrders: handleBulkDeleteOrders,
       updateProcessStatus: handleUpdateProcessStatus,
       updatePaymentStatus: handleUpdatePaymentStatus,
       reorderQueue: handleReorderQueue,
@@ -699,9 +823,13 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     [
       orders,
       loading,
+      fetchError,
+      refreshOrders,
       searchQuery,
       filterTab,
+      setFilterTab,
       dateFilter,
+      setDateFilter,
       isFormModalOpen,
       editingOrder,
       openCreateModal,
@@ -712,6 +840,8 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       handleCreateOrder,
       handleUpdateOrder,
       handleDeleteOrder,
+      handleSoftDeleteOrder,
+      handleBulkDeleteOrders,
       handleUpdateProcessStatus,
       handleUpdatePaymentStatus,
       handleReorderQueue,

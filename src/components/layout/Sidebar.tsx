@@ -1,407 +1,303 @@
 'use client';
 
-import React, { useRef } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  Layers,
   BarChart3,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  ClipboardList,
+  Copy,
+  Database,
   History,
-  Sparkles,
-  Printer,
-  PanelLeftClose,
-  PanelLeftOpen,
-  X,
   Receipt,
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { useSidebar } from '@/context/SidebarContext';
-import {
-  SIDEBAR_COLLAPSED_WIDTH,
-  resolveSidebarDrag,
-  detectSwipeGesture,
-} from '@/lib/sidebar';
+import { useOrders } from '@/context/OrderContext';
+import { SIDEBAR_DEFAULT_WIDTH } from '@/lib/sidebar';
 
-interface NavItem {
-  label: string;
-  href: string;
-  icon: React.ComponentType<{ className?: string }>;
-  description: string;
-}
-
-const navItems: NavItem[] = [
+const NAV_ITEMS = [
   {
-    label: 'Antrean Pesanan',
     href: '/order',
-    icon: Layers,
-    description: 'Kelola alur sablon & ganci.',
+    label: 'Antrean Pesanan',
+    shortLabel: 'Antrean',
+    icon: ClipboardList,
   },
   {
-    label: 'Rekapan & Omzet',
     href: '/dashboard',
+    label: 'Rekapan & Omzet',
+    shortLabel: 'Rekapan',
     icon: BarChart3,
-    description: 'Analisis laba dan performa.',
   },
   {
-    label: 'Riwayat & Arsip',
     href: '/history',
+    label: 'Riwayat & Arsip',
+    shortLabel: 'Riwayat',
     icon: History,
-    description: 'Arsip pesanan selesai.',
   },
   {
-    label: 'Capex & Bahan',
     href: '/capex',
+    label: 'Capex & Bahan',
+    shortLabel: 'Capex',
     icon: Receipt,
-    description: 'Biaya modal & bahan baku.',
   },
-];
+] as const;
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const {
-    width,
-    isCollapsed,
-    isDragging,
-    isMobileOpen,
-    setWidth,
-    setIsCollapsed,
-    toggleCollapsed,
-    closeMobile,
-    setIsDragging,
-  } = useSidebar();
+  const { width, isCollapsed, toggleCollapsed } = useSidebar();
+  const { isConfigured, configReason } = useOrders();
+  const [copiedEnv, setCopiedEnv] = useState(false);
 
-  // Mobile swipe-to-close touch coordinates
-  const mobileTouchStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-
-  const handleMobileTouchStart = (e: React.TouchEvent<HTMLElement>) => {
-    if (e.touches.length === 1) {
-      mobileTouchStartRef.current = {
-        x: e.touches[0].clientX,
-        y: e.touches[0].clientY,
-      };
-    }
+  const handleCopyEnv = () => {
+    navigator.clipboard?.writeText(
+      'NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co\nNEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key'
+    );
+    setCopiedEnv(true);
+    setTimeout(() => setCopiedEnv(false), 2000);
   };
 
-  const handleMobileTouchEnd = (e: React.TouchEvent<HTMLElement>) => {
-    if (e.changedTouches.length === 1) {
-      const endX = e.changedTouches[0].clientX;
-      const endY = e.changedTouches[0].clientY;
-      const gesture = detectSwipeGesture(mobileTouchStartRef.current, { x: endX, y: endY });
-      if (gesture === 'CLOSE_MOBILE') {
-        closeMobile();
-      }
-    }
-  };
+  // Clamp expanded width to 232px target (>= 1440px) or 64px rail when collapsed
+  const desktopWidth = isCollapsed ? 64 : width >= 200 && width !== SIDEBAR_DEFAULT_WIDTH ? width : 232;
 
-  // Desktop drag handle resize logic
-  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragging(true);
-
-    const handlePointerMove = (moveEvent: PointerEvent) => {
-      const newWidth = moveEvent.clientX;
-      const resolved = resolveSidebarDrag(newWidth);
-      if (resolved.isCollapsed) {
-        setIsCollapsed(true);
-      } else {
-        setIsCollapsed(false);
-        setWidth(resolved.width);
-      }
-    };
-
-    const handlePointerUp = () => {
-      setIsDragging(false);
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-    };
-
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
-  };
-
-  const desktopWidth = isCollapsed ? SIDEBAR_COLLAPSED_WIDTH : width;
+  const isRouteActive = (href: string) =>
+    pathname === href || (href === '/order' && pathname === '/');
 
   return (
     <>
-      {/* =========================================================================
-          1. DESKTOP SIDEBAR VIEW (hidden on md:, zero footprint on small screens)
-          ========================================================================= */}
+      {/* Tablet & Compact Desktop Icon Rail (768px - 1439px): fixed 64px wide */}
       <aside
-        style={{ width: desktopWidth }}
-        className={`hidden md:flex flex-col justify-between shrink-0 min-h-screen bg-[#f6f5f4] border-r border-[#e5e3df] text-[#37352f] relative z-20 select-none ${
-          isDragging ? 'transition-none' : 'transition-[width] duration-200 ease-in-out'
-        }`}
+        aria-label="Navigasi sidebar ringkas"
+        className="hidden md:flex min-[1440px]:hidden flex-col w-16 shrink-0 border-r border-[var(--border)] bg-[var(--surface)] shadow-[4px_0_24px_-4px_rgba(15,23,42,0.05)] sticky top-0 h-screen py-3 items-center justify-between z-20"
       >
-        {/* Brand Header & Navigation */}
-        <div>
-          {/* Brand Header */}
-          {isCollapsed ? (
-            <div className="pt-6 pb-5 px-2 border-b border-[#e5e3df] flex flex-col items-center gap-3">
-              <div className="w-9 h-9 rounded-md bg-[#5645d4] flex items-center justify-center text-white shadow-xs">
-                <Printer className="w-5 h-5 text-white" />
-              </div>
-              <button
-                type="button"
-                onClick={toggleCollapsed}
-                className="p-1.5 rounded-md text-[#5d5b54] hover:text-[#1a1a1a] hover:bg-[#ede9e4] transition-colors cursor-pointer"
-                aria-label="Perluas sidebar"
-                title="Perluas sidebar"
-              >
-                <PanelLeftOpen className="w-4 h-4 text-[#5d5b54]" />
-              </button>
-            </div>
-          ) : (
-            <div className="pt-6 pb-5 px-5 border-b border-[#e5e3df] flex items-center justify-between">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="w-9 h-9 rounded-md bg-[#5645d4] flex items-center justify-center text-white shadow-xs shrink-0">
-                  <Printer className="w-5 h-5 text-white" />
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-lg font-bold tracking-tight text-[#1a1a1a] truncate">
-                      Mafrend.Order
-                    </span>
-                  </div>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={toggleCollapsed}
-                className="p-1.5 rounded-md text-[#5d5b54] hover:text-[#1a1a1a] hover:bg-[#ede9e4] transition-colors cursor-pointer shrink-0"
-                aria-label="Ciutkan sidebar"
-                title="Ciutkan sidebar"
-              >
-                <PanelLeftClose className="w-4 h-4 text-[#5d5b54]" />
-              </button>
-            </div>
-          )}
+        <div className="flex flex-col items-center gap-4 w-full px-2">
+          <Link
+            href="/order"
+            prefetch={true}
+            aria-label="Radarai.Ganci — Beranda antrean pesanan"
+            title="Radarai.Ganci"
+            className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--accent)] text-white text-[14px] font-bold tracking-tight accent-shadow"
+          >
+            R
+          </Link>
 
-          {/* Navigation List */}
-          <nav className={`mt-4 flex flex-col gap-1 ${isCollapsed ? 'px-2' : 'px-3'}`}>
-            {navItems.map((item) => {
-              const isActive =
-                pathname === item.href ||
-                (item.href !== '/order' && pathname?.startsWith(item.href)) ||
-                (item.href === '/order' && (pathname === '/' || pathname === '/order'));
+          <nav aria-label="Navigasi utama" className="flex flex-col items-center gap-1.5 w-full">
+            {NAV_ITEMS.map((item) => {
+              const active = isRouteActive(item.href);
               const Icon = item.icon;
-
-              return (
-                <div key={item.href} className="relative group">
-                  <Link
-                    href={item.href}
-                    className={`nav-item rounded-md flex items-center text-xs font-medium transition-all ${
-                      isCollapsed ? 'justify-center p-2.5' : 'px-3 py-2.5 gap-3'
-                    } ${
-                      isActive
-                        ? 'active bg-[#e6e0f5] text-[#391c57] font-semibold'
-                        : 'text-[#5d5b54] hover:bg-[#ede9e4] hover:text-[#1a1a1a]'
-                    }`}
-                  >
-                    <div
-                      className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 transition-colors ${
-                        isActive
-                          ? 'bg-[#5645d4] text-white'
-                          : 'bg-white border border-[#e5e3df] text-[#787671]'
-                      }`}
-                    >
-                      <Icon className="w-3.5 h-3.5" />
-                    </div>
-
-                    {!isCollapsed && (
-                      <div className="flex flex-col min-w-0">
-                        <span className="leading-tight truncate">{item.label}</span>
-                        <span
-                          className={`text-[10px] leading-tight mt-0.5 truncate ${
-                            isActive ? 'text-[#391c57]' : 'text-[#787671]'
-                          }`}
-                        >
-                          {item.description}
-                        </span>
-                      </div>
-                    )}
-                  </Link>
-
-                  {/* Accessible Hover Tooltip in Rail Mode (WCAG AA 17.5:1 contrast) */}
-                  {isCollapsed && (
-                    <div
-                      role="tooltip"
-                      className="absolute left-full ml-3 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-md bg-[#0a1530] text-white text-xs whitespace-nowrap shadow-lg z-50 pointer-events-none opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-150 before:content-[''] before:absolute before:right-full before:top-1/2 before:-translate-y-1/2 before:border-4 before:border-transparent before:border-r-[#0a1530]"
-                    >
-                      <div className="font-semibold text-white">{item.label}</div>
-                      <div className="text-[10px] text-white/80">{item.description}</div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </nav>
-        </div>
-
-        {/* Footer Workshop Status */}
-        {isCollapsed ? (
-          <div className="p-2 mb-4 mx-auto flex flex-col items-center group relative">
-            <div className="w-8 h-8 rounded-lg bg-white border border-[#e5e3df] shadow-xs flex items-center justify-center">
-              <span className="relative flex h-2.5 w-2.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#1aae39] opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#1aae39]"></span>
-              </span>
-            </div>
-            {/* Tooltip for collapsed status */}
-            <div
-              role="tooltip"
-              className="absolute left-full ml-3 bottom-2 px-3 py-1.5 rounded-md bg-[#0a1530] text-white text-xs whitespace-nowrap shadow-lg z-50 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 before:content-[''] before:absolute before:right-full before:top-1/2 before:-translate-y-1/2 before:border-4 before:border-transparent before:border-r-[#0a1530]"
-            >
-              <div className="font-semibold text-white">Status Workshop: Aktif</div>
-              <div className="text-[10px] text-white/80">Shift produksi 08:00 - 17:00</div>
-            </div>
-          </div>
-        ) : (
-          <div className="p-3.5 m-3 rounded-xl bg-white border border-[#d6d3cd] card-bounce">
-            <div className="flex items-center gap-2 mb-1.5 text-xs font-semibold text-[#1a1a1a]">
-              <Sparkles className="w-3.5 h-3.5 text-[#5645d4]" />
-              <span>Status Workshop</span>
-            </div>
-            <p className="text-[11px] text-[#787671] leading-relaxed">
-              Shift produksi sablon & ganci aktif.
-            </p>
-            <div className="mt-2.5 pt-2 border-t border-[#e5e3df] flex items-center justify-between text-[10px] text-[#787671]">
-              <span>v1.0 Produksi</span>
-              <span className="flex items-center gap-1 font-semibold text-[#0d5220]">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#1aae39]"></span>
-                Aktif
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* Desktop Drag Handle along Right Border */}
-        <div
-          onPointerDown={handlePointerDown}
-          className="absolute top-0 right-0 w-2.5 h-full cursor-col-resize z-30 touch-none select-none group"
-          title="Tarik untuk mengubah ukuran sidebar"
-        >
-          <div
-            className={`w-[3px] h-full ml-auto transition-colors duration-150 ${
-              isDragging
-                ? 'bg-[#5645d4] shadow-[0_0_8px_rgba(86,69,212,0.6)]'
-                : 'group-hover:bg-[#5645d4]/40'
-            }`}
-          />
-        </div>
-      </aside>
-
-      {/* =========================================================================
-          2. MOBILE OFF-CANVAS SIDEBAR DRAWER (md:hidden, 0px normal document flow)
-          ========================================================================= */}
-      {/* Dimmed Backdrop Overlay with fade transition */}
-      <div
-        className={`fixed inset-0 z-40 bg-black/40 backdrop-blur-xs transition-opacity duration-300 md:hidden ${
-          isMobileOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-        }`}
-        onClick={closeMobile}
-        aria-hidden="true"
-      />
-
-      {/* Slide-Over Drawer Container */}
-      <aside
-        id="mobile-sidebar"
-        aria-label="Navigasi Menu Mobile"
-        onTouchStart={handleMobileTouchStart}
-        onTouchEnd={handleMobileTouchEnd}
-        className={`fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] bg-[#f6f5f4] border-r border-[#e5e3df] shadow-2xl flex flex-col justify-between transform transition-transform duration-300 ease-in-out md:hidden ${
-          isMobileOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
-      >
-        <div>
-          {/* Header with Close Button (min 44px tap target) */}
-          <div className="pt-5 pb-4 px-5 border-b border-[#e5e3df] flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-md bg-[#5645d4] flex items-center justify-center text-white shadow-xs">
-                <Printer className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-lg font-bold tracking-tight text-[#1a1a1a]">
-                    Mafrend.Order
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={closeMobile}
-              className="flex items-center justify-center min-w-[44px] min-h-[44px] -mr-2 rounded-md text-[#5d5b54] hover:text-[#1a1a1a] hover:bg-[#ede9e4] transition-colors cursor-pointer"
-              aria-label="Tutup menu navigasi"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          {/* Navigation Links with min 44px touch height */}
-          <nav className="mt-4 px-3 flex flex-col gap-1.5">
-            {navItems.map((item) => {
-              const isActive =
-                pathname === item.href ||
-                (item.href !== '/order' && pathname?.startsWith(item.href)) ||
-                (item.href === '/order' && (pathname === '/' || pathname === '/order'));
-              const Icon = item.icon;
-
               return (
                 <Link
                   key={item.href}
                   href={item.href}
-                  onClick={closeMobile}
-                  className={`nav-item px-3 min-h-[44px] rounded-md flex items-center gap-3 text-xs font-medium transition-all ${
-                    isActive
-                      ? 'active bg-[#e6e0f5] text-[#391c57] font-semibold'
-                      : 'text-[#5d5b54] hover:bg-[#ede9e4] hover:text-[#1a1a1a]'
-                  }`}
+                  prefetch={true}
+                  aria-label={item.label}
+                  aria-current={active ? 'page' : undefined}
+                  title={item.label}
+                  className={cn(
+                    'flex h-11 w-11 items-center justify-center rounded-xl transition-all duration-150 ease-out',
+                    active
+                      ? 'bg-[var(--accent)] text-[var(--accent-fg)] accent-shadow'
+                      : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text)]'
+                  )}
                 >
-                  <div
-                    className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 transition-colors ${
-                      isActive
-                        ? 'bg-[#5645d4] text-white'
-                        : 'bg-white border border-[#e5e3df] text-[#787671]'
-                    }`}
-                  >
-                    <Icon className="w-3.5 h-3.5" />
-                  </div>
-                  <div className="flex flex-col min-w-0">
-                    <span className="leading-tight font-medium text-sm sm:text-xs truncate">
-                      {item.label}
-                    </span>
-                    <span
-                      className={`text-[11px] sm:text-[10px] leading-tight mt-0.5 truncate ${
-                        isActive ? 'text-[#391c57]' : 'text-[#787671]'
-                      }`}
-                    >
-                      {item.description}
-                    </span>
-                  </div>
+                  <Icon className="w-[18px] h-[18px]" aria-hidden="true" />
                 </Link>
               );
             })}
           </nav>
         </div>
 
-        {/* Mobile Footer Status */}
-        <div className="p-3.5 m-3 rounded-lg bg-white border border-[#e5e3df] shadow-[0_4px_12px_rgba(15,15,15,0.06)]">
-          <div className="flex items-center gap-2 mb-1.5 text-xs font-semibold text-[#1a1a1a]">
-            <Sparkles className="w-3.5 h-3.5 text-[#5645d4]" />
-            <span>Status Workshop</span>
-          </div>
-          <p className="text-[11px] text-[#787671] leading-relaxed">
-            Shift produksi sablon & ganci aktif.
-          </p>
-          <div className="mt-2.5 pt-2 border-t border-[#e5e3df] flex items-center justify-between text-[10px] text-[#787671]">
-            <span>v1.0 Produksi</span>
-            <span className="flex items-center gap-1 font-semibold text-[#0d5220]">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#1aae39]"></span>
-              Aktif
-            </span>
-          </div>
+        <div className="flex flex-col items-center gap-2 px-2 pb-10">
+          {!isConfigured && (
+            <button
+              type="button"
+              onClick={handleCopyEnv}
+              title={
+                configReason ||
+                'Mode standby: klik untuk salin template .env.local Supabase'
+              }
+              aria-label="Mode standby Supabase, klik untuk salin contoh konfigurasi"
+              className="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--status-amber-bg)] text-[var(--status-amber-ink)] border border-[var(--status-amber-border)] cursor-pointer"
+            >
+              {copiedEnv ? (
+                <Check className="w-4 h-4" aria-hidden="true" />
+              ) : (
+                <Database className="w-4 h-4" aria-hidden="true" />
+              )}
+            </button>
+          )}
+          <span
+            className="text-[11px] font-medium text-[var(--text-muted)] tabular-nums"
+            title="Shift kerja workshop 08:00 - 17:00"
+          >
+            08–17
+          </span>
         </div>
       </aside>
+
+      {/* Desktop Sidebar (>= 1440px): 232px expanded or 64px collapsed */}
+      <aside
+        aria-label="Sidebar navigasi aplikasi"
+        style={{ width: `${desktopWidth}px` }}
+        className="hidden min-[1440px]:flex flex-col shrink-0 border-r border-[var(--border)] bg-[var(--surface)] shadow-[4px_0_24px_-4px_rgba(15,23,42,0.05)] sticky top-0 h-screen transition-[width] duration-150 ease-out z-20"
+      >
+        {/* Top brand bar + collapse control */}
+        <div
+          className={cn(
+            'flex items-center h-16 border-b border-[var(--border)] px-4',
+            isCollapsed ? 'justify-center' : 'justify-between'
+          )}
+        >
+          {!isCollapsed && (
+            <Link
+              href="/order"
+              prefetch={true}
+              className="flex items-center gap-2.5 min-w-0 rounded-lg py-1 px-1"
+            >
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[var(--accent)] text-white text-[14px] font-bold accent-shadow">
+                R
+              </span>
+              <span className="text-[15px] font-bold tracking-tight text-[var(--text)] truncate">
+                Radarai.Ganci
+              </span>
+            </Link>
+          )}
+
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            aria-expanded={!isCollapsed}
+            aria-label={isCollapsed ? 'Luaskan sidebar' : 'Ciutkan sidebar'}
+            title={isCollapsed ? 'Luaskan sidebar' : 'Ciutkan sidebar'}
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text)] transition-colors cursor-pointer"
+          >
+            {isCollapsed ? (
+              <ChevronRight className="w-4 h-4" aria-hidden="true" />
+            ) : (
+              <ChevronLeft className="w-4 h-4" aria-hidden="true" />
+            )}
+          </button>
+        </div>
+
+        {/* Primary nav items: single icon + 1-line label only */}
+        <nav aria-label="Navigasi utama" className="flex-1 p-3 space-y-1.5 overflow-y-auto">
+          {NAV_ITEMS.map((item) => {
+            const active = isRouteActive(item.href);
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                prefetch={true}
+                aria-current={active ? 'page' : undefined}
+                aria-label={isCollapsed ? item.label : undefined}
+                title={isCollapsed ? item.label : undefined}
+                className={cn(
+                  'flex items-center rounded-xl min-h-[42px] transition-all duration-150 ease-out',
+                  isCollapsed ? 'justify-center px-2' : 'gap-3 px-3.5 py-2.5',
+                  active
+                    ? 'bg-[var(--accent)] text-[var(--accent-fg)] font-semibold accent-shadow'
+                    : 'text-[var(--text-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text)] font-medium'
+                )}
+              >
+                <Icon className="w-[18px] h-[18px] shrink-0" aria-hidden="true" />
+                {!isCollapsed && (
+                  <span className="text-[13.5px] truncate">{item.label}</span>
+                )}
+              </Link>
+            );
+          })}
+        </nav>
+
+        {/* Footer: plain shift hours text clear of bottom-left dev indicator + unobtrusive standby copy helper */}
+        <div className="border-t border-[var(--border)] px-3 py-2.5 space-y-2">
+          {!isConfigured && !isCollapsed && (
+            <div className="rounded-lg border border-[var(--status-amber-border)] bg-[var(--status-amber-bg)] px-2.5 py-2 text-[12px] text-[var(--status-amber-ink)]">
+              <div className="flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1.5 font-medium">
+                  <Database className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                  Mode standby
+                </span>
+                <button
+                  type="button"
+                  onClick={handleCopyEnv}
+                  className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 bg-[var(--surface)] border border-[var(--status-amber-border)] text-[12px] font-medium text-[var(--text)] hover:bg-[var(--surface-muted)] cursor-pointer"
+                >
+                  {copiedEnv ? (
+                    <Check className="w-3 h-3 text-[var(--status-green-ink)]" aria-hidden="true" />
+                  ) : (
+                    <Copy className="w-3 h-3 text-[var(--text-muted)]" aria-hidden="true" />
+                  )}
+                  <span>{copiedEnv ? 'Tersalin' : 'Env'}</span>
+                </button>
+              </div>
+              <p className="mt-1 text-[12px] leading-snug opacity-90">
+                {configReason || 'Supabase belum terhubung. Gunakan data demo lokal.'}
+              </p>
+            </div>
+          )}
+
+          {!isConfigured && isCollapsed && (
+            <div className="flex justify-center">
+              <button
+                type="button"
+                onClick={handleCopyEnv}
+                title="Mode standby Supabase, klik untuk salin template .env.local"
+                aria-label="Mode standby Supabase, klik untuk salin contoh env"
+                className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--status-amber-bg)] text-[var(--status-amber-ink)] border border-[var(--status-amber-border)] cursor-pointer"
+              >
+                {copiedEnv ? (
+                  <Check className="w-4 h-4" aria-hidden="true" />
+                ) : (
+                  <Database className="w-4 h-4" aria-hidden="true" />
+                )}
+              </button>
+            </div>
+          )}
+
+          <p
+            className={cn(
+              'text-[12px] text-[var(--text-muted)] tabular-nums leading-none',
+              isCollapsed ? 'text-center pb-8' : 'text-right pr-1'
+            )}
+          >
+            {isCollapsed ? '08–17' : 'Shift 08:00 - 17:00'}
+          </p>
+        </div>
+      </aside>
+
+      {/* Mobile Bottom Tab Bar (< 768px): 56px height, 4 items, >= 44px touch targets */}
+      <nav
+        aria-label="Navigasi utama mobile"
+        className="md:hidden fixed inset-x-0 bottom-0 z-40 border-t border-[var(--border)] bg-[var(--surface)] pb-[env(safe-area-inset-bottom)]"
+      >
+        <div className="grid grid-cols-4 h-14">
+          {NAV_ITEMS.map((item) => {
+            const active = isRouteActive(item.href);
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                prefetch={true}
+                aria-current={active ? 'page' : undefined}
+                className={cn(
+                  'flex flex-col items-center justify-center gap-0.5 min-h-[44px] px-1 text-[12px] font-medium transition-colors',
+                  active
+                    ? 'text-[var(--accent-ink)] bg-[var(--accent-tint)]/50 font-semibold'
+                    : 'text-[var(--text-muted)] hover:text-[var(--text)]'
+                )}
+              >
+                <Icon className="w-[18px] h-[18px] shrink-0" aria-hidden="true" />
+                <span className="leading-none truncate max-w-full">{item.shortLabel}</span>
+              </Link>
+            );
+          })}
+        </div>
+      </nav>
     </>
   );
 }

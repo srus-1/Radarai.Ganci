@@ -1,231 +1,508 @@
 'use client';
 
-import React, { useState } from 'react';
-import { MonthlyProfitData } from '@/types/order';
-import { formatRp } from '@/lib/utils';
-import { BarChart3, Info } from 'lucide-react';
+import React, { useId, useMemo, useState } from 'react';
+import { BarChart3, Table2 } from 'lucide-react';
+import { MonthlyProfitData, Order } from '@/types/order';
+import {
+  formatMonthLabel,
+  formatNumberId,
+  formatPercent,
+  formatRp,
+  formatUnitQty,
+  parseLocalDate,
+} from '@/lib/utils';
 
-interface MonthlyProfitChartProps {
+export interface MonthlyProfitChartProps {
   data: MonthlyProfitData[];
+  orders?: Order[];
+  selectedMonth?: string;
 }
 
-export default function MonthlyProfitChart({ data }: MonthlyProfitChartProps) {
-  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+interface ChartPoint {
+  key: string;
+  label: string;
+  shortLabel: string;
+  omzet: number;
+  hpp: number;
+  profit: number;
+  marginPct: number;
+  pcs: number;
+}
 
-  if (!data || data.length === 0) {
+const SHORT_MONTHS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'Mei',
+  'Jun',
+  'Jul',
+  'Agu',
+  'Sep',
+  'Okt',
+  'Nov',
+  'Des',
+];
+
+export function computeNiceScale(maxValue: number): { max: number; step: number } {
+  const safeMax = Math.max(maxValue, 10000);
+  const rawStep = safeMax / 4;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
+  const residual = rawStep / magnitude;
+
+  let niceMultiplier = 10;
+  if (residual <= 1) niceMultiplier = 1;
+  else if (residual <= 1.5) niceMultiplier = 1.5;
+  else if (residual <= 2) niceMultiplier = 2;
+  else if (residual <= 2.5) niceMultiplier = 2.5;
+  else if (residual <= 5) niceMultiplier = 5;
+
+  const step = niceMultiplier * magnitude;
+  return { step, max: step * 4 };
+}
+
+function formatAxisTick(value: number): string {
+  if (value <= 0) return '0';
+  if (value >= 1_000_000) {
+    const millions = value / 1_000_000;
+    const formatted = Number.isInteger(millions)
+      ? String(millions)
+      : formatNumberId(millions, 1);
+    return `${formatted} jt`;
+  }
+  if (value >= 1_000) {
+    const thousands = value / 1_000;
+    const formatted = Number.isInteger(thousands)
+      ? formatNumberId(thousands, 0)
+      : formatNumberId(thousands, 1);
+    return `${formatted} rb`;
+  }
+  return formatNumberId(value, 0);
+}
+
+export function buildAdaptiveSeries(
+  data: MonthlyProfitData[],
+  orders?: Order[],
+  selectedMonth?: string
+): { points: ChartPoint[]; title: string } {
+  // Use monthly series when 3 or more distinct months have history
+  if (data.length >= 3 || !orders || orders.length === 0) {
+    return {
+      title: 'Omzet dan laba per bulan',
+      points: data.map((d) => ({
+        key: d.month,
+        label: d.monthLabel,
+        shortLabel: d.monthLabel,
+        omzet: d.omzet,
+        hpp: d.hpp,
+        profit: d.profit,
+        marginPct: d.marginPct,
+        pcs: d.pcs,
+      })),
+    };
+  }
+
+  // Filter orders to selectedMonth when available, otherwise use all orders in this <3-month view
+  const scopedOrders = selectedMonth
+    ? orders.filter((o) => {
+        const d = parseLocalDate(o.orderDate || o.createdAt);
+        if (!d) return false;
+        const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        return ym === selectedMonth;
+      })
+    : orders;
+
+  const sourceOrders = scopedOrders.length > 0 ? scopedOrders : orders;
+  const periodTitleSuffix = selectedMonth ? `, ${formatMonthLabel(selectedMonth)}` : '';
+
+  const dailyMap = new Map<string, ChartPoint>();
+  for (const o of sourceOrders) {
+    const d = parseLocalDate(o.orderDate || o.createdAt);
+    if (!d) continue;
+    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const shortLabel = `${d.getDate()} ${SHORT_MONTHS[d.getMonth()]}`;
+
+    const curr = dailyMap.get(iso) || {
+      key: iso,
+      label: shortLabel,
+      shortLabel,
+      omzet: 0,
+      hpp: 0,
+      profit: 0,
+      marginPct: 0,
+      pcs: 0,
+    };
+    curr.omzet += o.omzet;
+    curr.hpp += o.hppBreakdown.totalHpp;
+    curr.profit += o.profit;
+    curr.pcs += o.qty;
+    dailyMap.set(iso, curr);
+  }
+
+  const dailyPoints = Array.from(dailyMap.values())
+    .sort((a, b) => a.key.localeCompare(b.key))
+    .map((pt) => ({
+      ...pt,
+      marginPct: pt.omzet > 0 ? Math.round(((pt.profit / pt.omzet) * 100) * 10) / 10 : 0,
+    }));
+
+  // Group into weekly buckets if a single month has more than 14 active dates
+  if (dailyPoints.length > 14) {
+    const weekMap = new Map<number, ChartPoint>();
+    for (const pt of dailyPoints) {
+      const dayNum = Number(pt.key.slice(8, 10)) || 1;
+      const weekIdx = Math.min(5, Math.ceil(dayNum / 7));
+      const curr = weekMap.get(weekIdx) || {
+        key: `w-${weekIdx}`,
+        label: `Minggu ${weekIdx}${periodTitleSuffix}`,
+        shortLabel: `Mg ${weekIdx}`,
+        omzet: 0,
+        hpp: 0,
+        profit: 0,
+        marginPct: 0,
+        pcs: 0,
+      };
+      curr.omzet += pt.omzet;
+      curr.hpp += pt.hpp;
+      curr.profit += pt.profit;
+      curr.pcs += pt.pcs;
+      weekMap.set(weekIdx, curr);
+    }
+
+    const weeklyPoints = Array.from(weekMap.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([, pt]) => ({
+        ...pt,
+        marginPct:
+          pt.omzet > 0 ? Math.round(((pt.profit / pt.omzet) * 100) * 10) / 10 : 0,
+      }));
+
+    return {
+      title: `Omzet dan laba per minggu${periodTitleSuffix}`,
+      points: weeklyPoints,
+    };
+  }
+
+  return {
+    title: `Omzet dan laba per hari${periodTitleSuffix}`,
+    points: dailyPoints,
+  };
+}
+
+export default function MonthlyProfitChart({
+  data,
+  orders,
+  selectedMonth,
+}: MonthlyProfitChartProps) {
+  const [activeIdx, setActiveIdx] = useState<number | null>(null);
+  const [showTable, setShowTable] = useState<boolean>(false);
+  const groupRefs = React.useRef<(SVGGElement | null)[]>([]);
+  const headingId = useId();
+
+  const { title, points } = useMemo(
+    () => buildAdaptiveSeries(data, orders, selectedMonth),
+    [data, orders, selectedMonth]
+  );
+
+  const summary = useMemo(() => {
+    const totalOmzet = points.reduce((s, p) => s + p.omzet, 0);
+    const totalProfit = points.reduce((s, p) => s + p.profit, 0);
+    return { totalOmzet, totalProfit };
+  }, [points]);
+
+  if (points.length === 0) {
     return (
-      <div className="bg-white rounded-lg p-6 border border-[#e5e3df] text-center text-[#787671] text-xs">
-        Belum ada data bulanan.
-      </div>
+      <section
+        aria-labelledby={headingId}
+        className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 text-center"
+      >
+        <h2 id={headingId} className="text-[14px] font-semibold text-[var(--text)]">
+          {title}
+        </h2>
+        <p className="mt-1 text-[13px] text-[var(--text-muted)]">
+          Belum ada data transaksi pada periode ini untuk ditampilkan pada grafik.
+        </p>
+      </section>
     );
   }
 
-  // SVG Chart Geometry calculations
-  const maxVal = Math.max(...data.map((d) => Math.max(d.omzet, d.profit, 1000000)), 5000000);
-  const roundedMax = Math.ceil(maxVal / 5000000) * 5000000;
+  const maxDataVal = Math.max(
+    ...points.map((p) => Math.max(p.omzet, p.profit, 0)),
+    10000
+  );
+  const { max: niceMax } = computeNiceScale(maxDataVal);
 
-  const chartWidth = 740;
-  const chartHeight = 260;
-  const paddingLeft = 65;
-  const paddingRight = 30;
-  const paddingTop = 25;
-  const paddingBottom = 40;
+  const isCompactMobileFit = points.length <= 7;
+  const chartWidth = points.length <= 4 ? 480 : 720;
+  const chartHeight = 200;
+  const padLeft = 58;
+  const padRight = 16;
+  const padTop = 14;
+  const padBottom = 30;
+  const usableW = chartWidth - padLeft - padRight;
+  const usableH = chartHeight - padTop - padBottom;
 
-  const usableWidth = chartWidth - paddingLeft - paddingRight;
-  const usableHeight = chartHeight - paddingTop - paddingBottom;
+  const groupW = usableW / points.length;
+  const barW = Math.max(12, Math.min(28, (groupW - 20) / 2));
+  const yFractions = [0, 0.25, 0.5, 0.75, 1];
+  const activePoint = activeIdx !== null ? points[activeIdx] : null;
 
-  const barGroupWidth = usableWidth / data.length;
-  const singleBarWidth = Math.min(24, (barGroupWidth - 20) / 2);
-
-  const yTicks = [0, 0.25, 0.5, 0.75, 1];
-
-  const activeItem = hoveredIdx !== null ? data[hoveredIdx] : null;
+  const handleBarKeyDown = (e: React.KeyboardEvent, idx: number) => {
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      const next = Math.min(points.length - 1, idx + 1);
+      setActiveIdx(next);
+      groupRefs.current[next]?.focus();
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      const prev = Math.max(0, idx - 1);
+      setActiveIdx(prev);
+      groupRefs.current[prev]?.focus();
+    }
+  };
 
   return (
-    <div className="bg-white rounded-xl p-4 sm:p-6 border border-[#d6d3cd] shadow-notion-panel flex flex-col gap-4 animate-fade-in-up delay-150">
-      {/* Chart Header & Legend */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-md bg-[#e6e0f5] text-[#391c57] flex items-center justify-center">
-              <BarChart3 className="w-4 h-4" />
-            </div>
-            <h3 className="text-sm font-semibold text-[#1a1a1a]">
-              Tren Omzet & Laba
-            </h3>
-          </div>
-          <p className="text-xs text-[#787671] mt-0.5">
-            Perbandingan omzet dan laba per bulan.
-          </p>
+    <section
+      aria-labelledby={headingId}
+      className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 mb-4"
+    >
+      {/* Compact Header + Inline Legend + Accessible Table Toggle */}
+      <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[var(--border)]">
+        <div className="min-w-0">
+          <h2 id={headingId} className="text-[14px] font-semibold text-[var(--text)]">
+            {title}
+          </h2>
+          {activePoint ? (
+            <p
+              aria-live="polite"
+              className="mt-0.5 text-[12px] text-[var(--text)] tabular-nums"
+            >
+              <span className="font-semibold">{activePoint.label}</span>: Omzet{' '}
+              <span className="font-medium">{formatRp(activePoint.omzet)}</span> · HPP{' '}
+              <span className="text-[var(--text-muted)]">{formatRp(activePoint.hpp)}</span> · Laba{' '}
+              <span className="font-medium text-[var(--status-green-ink)]">
+                {formatRp(activePoint.profit)}
+              </span>{' '}
+              ({formatPercent(activePoint.marginPct)} · {formatUnitQty(activePoint.pcs, 'pcs')})
+            </p>
+          ) : (
+            <p className="mt-0.5 text-[12px] text-[var(--text-muted)] tabular-nums">
+              {points.length} titik data · Total omzet {formatRp(summary.totalOmzet)} · Laba{' '}
+              {formatRp(summary.totalProfit)}
+            </p>
+          )}
         </div>
 
-        {/* Legend */}
-        <div className="flex items-center gap-4 text-xs font-medium">
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-xs bg-[#5645d4]"></span>
-            <span className="text-[#37352f]">Omzet Bruto</span>
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Compact Inline Legend */}
+          <div className="flex items-center gap-3 text-[12px] text-[var(--text-muted)]">
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                className="h-2.5 w-2.5 rounded-xs bg-[var(--accent)]"
+                aria-hidden="true"
+              />
+              <span>Omzet</span>
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                className="h-2.5 w-2.5 rounded-xs bg-[var(--status-green-ink)]"
+                aria-hidden="true"
+              />
+              <span>Laba</span>
+            </span>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-xs bg-[#1aae39]"></span>
-            <span className="text-[#37352f]">Laba Bersih</span>
-          </div>
+
+          <button
+            type="button"
+            aria-pressed={showTable}
+            onClick={() => setShowTable((prev) => !prev)}
+            className="inline-flex min-h-[32px] items-center gap-1.5 rounded-md border border-[var(--control-border)] bg-[var(--surface)] px-2.5 text-[12px] font-medium text-[var(--text)] hover:bg-[var(--surface-muted)] cursor-pointer"
+          >
+            {showTable ? (
+              <>
+                <BarChart3 className="w-3.5 h-3.5 text-[var(--text-muted)]" aria-hidden="true" />
+                <span>Tampilkan grafik</span>
+              </>
+            ) : (
+              <>
+                <Table2 className="w-3.5 h-3.5 text-[var(--text-muted)]" aria-hidden="true" />
+                <span>Tampilkan tabel</span>
+              </>
+            )}
+          </button>
         </div>
       </div>
 
-      {/* Interactive Tooltip Card Preview */}
-      <div className="min-h-[48px] bg-[#f6f5f4] rounded-md p-2.5 border border-[#e5e3df] flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs transition-all">
-        {activeItem ? (
-          <>
-            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-              <span className="px-2 py-0.5 rounded-sm bg-[#1a1a1a] text-white font-semibold text-xs">
-                {activeItem.monthLabel}
-              </span>
-              <div>
-                <span className="text-[#787671] mr-1">Omzet:</span>
-                <strong className="text-[#1a1a1a]">{formatRp(activeItem.omzet)}</strong>
-              </div>
-              <span className="text-[#c8c4be] hidden sm:inline">•</span>
-              <div>
-                <span className="text-[#787671] mr-1">HPP:</span>
-                <strong className="text-[#5d5b54]">{formatRp(activeItem.hpp)}</strong>
-              </div>
-              <span className="text-[#c8c4be] hidden sm:inline">•</span>
-              <div>
-                <span className="text-[#787671] mr-1">Laba:</span>
-                <strong className="text-[#0d5220]">{formatRp(activeItem.profit)}</strong>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <span className="px-1.5 py-0.2 rounded-sm bg-[#d9f3e1] text-[#0d5220] font-semibold text-[11px]">
-                Margin {activeItem.marginPct}%
-              </span>
-              <span className="text-[#787671] text-[11px]">({activeItem.pcs} Pcs)</span>
-            </div>
-          </>
-        ) : (
-          <div className="flex items-center gap-1.5 text-[#787671] text-xs">
-            <Info className="w-3.5 h-3.5 text-[#5645d4]" />
-            <span>Arahkan kursor atau sentuh diagram untuk rincian.</span>
-          </div>
-        )}
-      </div>
-
-      {/* Pure SVG Responsive Container */}
-      <div
-        className="w-full overflow-x-auto"
-        style={{ WebkitOverflowScrolling: 'touch' }}
-      >
-        <svg
-          viewBox={`0 0 ${chartWidth} ${chartHeight}`}
-          className="w-full h-auto min-w-[620px] select-none"
-        >
-          {/* Background Grid Lines & Y-Axis Labels */}
-          {yTicks.map((pct) => {
-            const y = paddingTop + usableHeight * (1 - pct);
-            const val = roundedMax * pct;
-            const formatted = val >= 1000000 ? `${(val / 1000000).toFixed(0)} jt` : `0`;
-
-            return (
-              <g key={pct}>
-                <line
-                  x1={paddingLeft}
-                  y1={y}
-                  x2={chartWidth - paddingRight}
-                  y2={y}
-                  stroke="#e5e3df"
-                  strokeDasharray="3 3"
-                  strokeWidth="1"
-                />
-                <text
-                  x={paddingLeft - 10}
-                  y={y + 4}
-                  textAnchor="end"
-                  fill="#787671"
-                  fontSize="11"
-                  fontWeight="500"
-                >
-                  {formatted}
-                </text>
-              </g>
-            );
-          })}
-
-          {/* Bar Groups */}
-          {data.map((item, idx) => {
-            const groupCenterX = paddingLeft + idx * barGroupWidth + barGroupWidth / 2;
-            const omzetHeight = Math.max(4, (item.omzet / roundedMax) * usableHeight);
-            const profitHeight = Math.max(4, (item.profit / roundedMax) * usableHeight);
-
-            const omzetY = paddingTop + usableHeight - omzetHeight;
-            const profitY = paddingTop + usableHeight - profitHeight;
-
-            const omzetX = groupCenterX - singleBarWidth - 2;
-            const profitX = groupCenterX + 2;
-
-            const isHovered = hoveredIdx === idx;
-
-            return (
-              <g
-                key={item.month}
-                onMouseEnter={() => setHoveredIdx(idx)}
-                onMouseLeave={() => setHoveredIdx(null)}
-                onClick={() => setHoveredIdx(hoveredIdx === idx ? null : idx)}
-                onTouchStart={() => setHoveredIdx(hoveredIdx === idx ? null : idx)}
-                className="cursor-pointer"
-              >
-                {/* Hover Background Highlight Box */}
-                {isHovered && (
-                  <rect
-                    x={paddingLeft + idx * barGroupWidth + 4}
-                    y={paddingTop}
-                    width={barGroupWidth - 8}
-                    height={usableHeight}
-                    fill="#f6f5f4"
-                    rx="4"
-                    opacity="0.9"
+      {/* Accessible Semantic Data Table View */}
+      {showTable ? (
+        <div className="mt-3 overflow-x-auto rounded-md border border-[var(--border)]">
+          <table className="w-full text-left border-collapse">
+            <caption className="visually-hidden">{title}</caption>
+            <thead className="bg-[var(--surface-muted)] border-b border-[var(--border)]">
+              <tr>
+                <th scope="col" className="py-2 px-3 text-[12px] font-medium text-[var(--text-muted)]">
+                  Periode
+                </th>
+                <th scope="col" className="py-2 px-3 text-[12px] font-medium text-[var(--text-muted)] text-right">
+                  Volume
+                </th>
+                <th scope="col" className="py-2 px-3 text-[12px] font-medium text-[var(--text-muted)] text-right">
+                  Omzet
+                </th>
+                <th scope="col" className="py-2 px-3 text-[12px] font-medium text-[var(--text-muted)] text-right">
+                  HPP
+                </th>
+                <th scope="col" className="py-2 px-3 text-[12px] font-medium text-[var(--text-muted)] text-right">
+                  Laba
+                </th>
+                <th scope="col" className="py-2 px-3 text-[12px] font-medium text-[var(--text-muted)] text-right">
+                  Margin
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[var(--border)] text-[13px]">
+              {points.map((pt) => (
+                <tr key={pt.key} className="hover:bg-[var(--surface-muted)]/50">
+                  <td className="py-2 px-3 font-medium text-[var(--text)]">{pt.label}</td>
+                  <td className="py-2 px-3 text-right tabular-nums text-[var(--text)]">
+                    {formatUnitQty(pt.pcs, 'pcs')}
+                  </td>
+                  <td className="py-2 px-3 text-right tabular-nums font-medium text-[var(--text)]">
+                    {formatRp(pt.omzet)}
+                  </td>
+                  <td className="py-2 px-3 text-right tabular-nums text-[var(--text-muted)]">
+                    {formatRp(pt.hpp)}
+                  </td>
+                  <td className="py-2 px-3 text-right tabular-nums font-medium text-[var(--text)]">
+                    {formatRp(pt.profit)}
+                  </td>
+                  <td className="py-2 px-3 text-right tabular-nums text-[var(--text-muted)]">
+                    {formatPercent(pt.marginPct)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className={isCompactMobileFit ? 'mt-3 w-full' : 'mt-3 w-full overflow-x-auto'}>
+          <svg
+            role="img"
+            aria-label={`${title}. Total omzet ${formatRp(summary.totalOmzet)}, laba ${formatRp(summary.totalProfit)}.`}
+            viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+            className={
+              isCompactMobileFit
+                ? 'w-full h-[210px] select-none overflow-visible'
+                : 'w-full h-[210px] min-w-[640px] select-none overflow-visible'
+            }
+          >
+            {/* Horizontal grid lines & auto-scaled Y ticks */}
+            {yFractions.map((frac) => {
+              const y = padTop + usableH * (1 - frac);
+              const val = niceMax * frac;
+              return (
+                <g key={frac}>
+                  <line
+                    x1={padLeft}
+                    y1={y}
+                    x2={chartWidth - padRight}
+                    y2={y}
+                    stroke="#e3e2de"
+                    strokeDasharray={frac === 0 ? undefined : '3 3'}
+                    strokeWidth="1"
                   />
-                )}
+                  <text
+                    x={padLeft - 8}
+                    y={y + 4}
+                    textAnchor="end"
+                    fill="#57554f"
+                    fontSize="12"
+                    className="tabular-nums"
+                  >
+                    {formatAxisTick(val)}
+                  </text>
+                </g>
+              );
+            })}
 
-                {/* Omzet Bar (Notion Purple #5645d4) */}
-                <rect
-                  x={omzetX}
-                  y={omzetY}
-                  width={singleBarWidth}
-                  height={omzetHeight}
-                  fill="#5645d4"
-                  rx="3"
-                  className="animate-bar-grow transition-all duration-300 ease-out hover:opacity-100 hover:brightness-110"
-                  opacity={isHovered ? 1 : 0.88}
-                />
+            {/* Bar groups with keyboard & pointer inspection */}
+            {points.map((pt, idx) => {
+              const cx = padLeft + idx * groupW + groupW / 2;
+              const omzetH = pt.omzet > 0 ? Math.max(4, (pt.omzet / niceMax) * usableH) : 0;
+              const profitH = pt.profit > 0 ? Math.max(4, (pt.profit / niceMax) * usableH) : 0;
+              const omzetY = padTop + usableH - omzetH;
+              const profitY = padTop + usableH - profitH;
+              const omzetX = cx - barW - 2;
+              const profitX = cx + 2;
+              const isActive = activeIdx === idx;
 
-                {/* Profit Bar (Notion Green #1aae39) */}
-                <rect
-                  x={profitX}
-                  y={profitY}
-                  width={singleBarWidth}
-                  height={profitHeight}
-                  fill="#1aae39"
-                  rx="3"
-                  className="animate-bar-grow delay-75 transition-all duration-300 ease-out hover:opacity-100 hover:brightness-110"
-                  opacity={isHovered ? 1 : 0.88}
-                />
-
-                {/* Month Label on X-Axis */}
-                <text
-                  x={groupCenterX}
-                  y={chartHeight - 12}
-                  textAnchor="middle"
-                  fill={isHovered ? '#5645d4' : '#787671'}
-                  fontWeight={isHovered ? '600' : '400'}
-                  fontSize="11"
+              return (
+                <g
+                  key={pt.key}
+                  ref={(el) => {
+                    groupRefs.current[idx] = el;
+                  }}
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`${pt.label}: Omzet ${formatRp(pt.omzet)}, Laba ${formatRp(pt.profit)}, Margin ${formatPercent(pt.marginPct)}`}
+                  onMouseEnter={() => setActiveIdx(idx)}
+                  onMouseLeave={() => setActiveIdx((curr) => (curr === idx ? null : curr))}
+                  onFocus={() => setActiveIdx(idx)}
+                  onBlur={() => setActiveIdx((curr) => (curr === idx ? null : curr))}
+                  onClick={() => setActiveIdx((curr) => (curr === idx ? null : idx))}
+                  onKeyDown={(e) => handleBarKeyDown(e, idx)}
+                  className="cursor-pointer focus:outline-none"
                 >
-                  {item.monthLabel}
-                </text>
-              </g>
-            );
-          })}
-        </svg>
-      </div>
-    </div>
+                  {/* Transparent full-height hit target */}
+                  <rect
+                    x={padLeft + idx * groupW + 2}
+                    y={padTop}
+                    width={Math.max(24, groupW - 4)}
+                    height={usableH}
+                    fill={isActive ? '#f1f0ed' : 'transparent'}
+                    rx="4"
+                    stroke={isActive ? '#5645d4' : 'none'}
+                    strokeWidth={isActive ? '1.5' : '0'}
+                    strokeOpacity="0.65"
+                  />
+
+                  <rect
+                    x={omzetX}
+                    y={omzetY}
+                    width={barW}
+                    height={omzetH}
+                    fill="#5645d4"
+                    rx="3"
+                    opacity={isActive ? 1 : 0.9}
+                  />
+
+                  <rect
+                    x={profitX}
+                    y={profitY}
+                    width={barW}
+                    height={profitH}
+                    fill="#15803d"
+                    rx="3"
+                    opacity={isActive ? 1 : 0.9}
+                  />
+
+                  <text
+                    x={cx}
+                    y={chartHeight - 8}
+                    textAnchor="middle"
+                    fill={isActive ? '#18181b' : '#57554f'}
+                    fontWeight={isActive ? '600' : '400'}
+                    fontSize="12"
+                    className="tabular-nums"
+                  >
+                    {pt.shortLabel}
+                  </text>
+                </g>
+              );
+            })}
+          </svg>
+        </div>
+      )}
+    </section>
   );
 }

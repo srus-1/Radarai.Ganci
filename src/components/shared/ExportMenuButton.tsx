@@ -1,31 +1,37 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
-import { Download, ChevronDown, FileSpreadsheet, FileText, Cpu } from 'lucide-react';
+import React, { useEffect, useId, useRef, useState } from 'react';
+import { ChevronDown, Cpu, Download, FileSpreadsheet, FileText, MoreHorizontal } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 export interface ExportMenuButtonProps {
-  label: string;
+  label?: string;
   ariaLabel?: string;
-  variant?: 'navy' | 'purple' | 'light-lavender' | 'light-mint' | 'light-neutral';
+  iconOnly?: boolean;
   onExportExcel: () => void;
   onExportPDF: () => void;
   onExportCSV: () => void;
+  className?: string;
 }
 
 export default function ExportMenuButton({
-  label,
+  label = 'Unduh laporan',
   ariaLabel,
-  variant = 'navy',
+  iconOnly = false,
   onExportExcel,
   onExportPDF,
   onExportCSV,
+  className,
 }: ExportMenuButtonProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuId = useId();
 
   useEffect(() => {
     if (!open) return;
-    const handleClickOutside = (e: MouseEvent) => {
+
+    const handleClickOutside = (e: PointerEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setOpen(false);
       }
@@ -33,63 +39,66 @@ export default function ExportMenuButton({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setOpen(false);
+        triggerRef.current?.focus();
       }
     };
-    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('pointerdown', handleClickOutside);
     document.addEventListener('keydown', handleKeyDown);
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('pointerdown', handleClickOutside);
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [open]);
 
-  const buttonStyles: Record<NonNullable<ExportMenuButtonProps['variant']>, string> = {
-    navy: 'bg-[#1a2a52] hover:bg-[#233666] border-[#2a3c6b] text-white/95',
-    purple:
-      'bg-[#5645d4] hover:bg-[#4534b3] active:bg-[#3a2a99] border-[#5645d4] text-white shadow-[0_4px_12px_rgba(86,69,212,0.4)]',
-    'light-lavender':
-      'bg-white hover:bg-[#e6e0f5]/60 text-[#391c57] border-[#d6d3cd]',
-    'light-mint':
-      'bg-white hover:bg-[#d9f3e1]/60 text-[#0d5220] border-[#d6d3cd]',
-    'light-neutral':
-      'bg-white hover:bg-[#f6f5f4] text-[#1a1a1a] border-[#c8c4be]',
-  };
-
   return (
-    <div ref={containerRef} className="relative inline-block">
+    <div ref={containerRef} className={cn('relative inline-block', className)}>
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((prev) => !prev)}
         aria-label={ariaLabel || label}
         aria-haspopup="menu"
         aria-expanded={open}
-        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold shadow-2xs transition-all cursor-pointer min-h-[36px] ${buttonStyles[variant]}`}
+        aria-controls={open ? menuId : undefined}
+        title={ariaLabel || label}
+        className={cn(
+          'inline-flex items-center justify-center rounded-xl border border-[var(--border-strong)] bg-[var(--surface)] text-[13px] font-semibold text-[var(--text)] hover:bg-[var(--surface-muted)] control-shadow transition-all cursor-pointer',
+          iconOnly ? 'h-10 w-10' : 'h-10 px-3.5 gap-1.5'
+        )}
       >
-        <Download className="w-3.5 h-3.5 shrink-0" />
-        <span>{label}</span>
-        <ChevronDown
-          className={`w-3.5 h-3.5 shrink-0 transition-transform duration-150 ${
-            open ? 'rotate-180' : ''
-          }`}
-        />
+        {iconOnly ? (
+          <MoreHorizontal className="w-4 h-4" aria-hidden="true" />
+        ) : (
+          <>
+            <Download className="w-3.5 h-3.5 text-[var(--text-muted)] shrink-0" aria-hidden="true" />
+            <span>{label}</span>
+            <ChevronDown
+              className={cn(
+                'w-3.5 h-3.5 text-[var(--text-muted)] shrink-0 transition-transform duration-150',
+                open && 'rotate-180'
+              )}
+              aria-hidden="true"
+            />
+          </>
+        )}
       </button>
 
       {open && (
         <div
+          id={menuId}
           role="menu"
-          aria-label="Pilih format unduhan PDF, Excel, atau CSV"
-          className="absolute right-0 mt-1.5 w-68 rounded-xl bg-white border border-[#d6d3cd] shadow-[0_12px_32px_rgba(10,21,48,0.22)] p-1.5 z-50 animate-fade-in-up text-left"
+          aria-label="Pilih format unduhan laporan"
+          className="absolute right-0 mt-1.5 w-64 rounded-lg bg-[var(--surface)] border border-[var(--border-strong)] popover-shadow p-1.5 z-50 text-left"
         >
-          <div className="px-2.5 py-1.5 border-b border-[#f0eee9] flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#787671]">
-              Pilih Format Unduhan
+          <div className="px-2.5 py-1.5 border-b border-[var(--border)] flex items-center justify-between">
+            <span className="text-[12px] font-medium text-[var(--text-muted)]">
+              Unduh laporan
             </span>
-            <span className="text-[10px] font-semibold text-[#5645d4]">
-              PDF • Excel • CSV
+            <span className="text-[12px] font-medium text-[var(--accent-ink)]">
+              PDF / XLS / CSV
             </span>
           </div>
 
-          {/* Option 1: PDF for Owner */}
           <button
             type="button"
             role="menuitem"
@@ -97,25 +106,17 @@ export default function ExportMenuButton({
               setOpen(false);
               onExportPDF();
             }}
-            className="w-full flex items-start gap-2.5 px-2.5 py-2 rounded-lg hover:bg-[#ffe8d4]/60 transition-colors cursor-pointer text-left mt-0.5"
+            className="w-full flex items-start gap-2.5 px-2.5 py-2 rounded-md hover:bg-[var(--surface-muted)] transition-colors cursor-pointer text-left mt-1"
           >
-            <div className="w-7 h-7 rounded-md bg-[#ffe8d4] text-[#793400] flex items-center justify-center shrink-0 mt-0.5">
-              <FileText className="w-4 h-4" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between gap-1">
-                <span className="text-xs font-bold text-[#1a1a1a]">Unduh PDF (.pdf)</span>
-                <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-[#ffe8d4] text-[#793400]">
-                  Untuk Owner
-                </span>
-              </div>
-              <p className="text-[10px] text-[#5d5b54] leading-snug mt-0.5">
-                Dokumen laporan eksekutif siap cetak / simpan PDF.
+            <FileText className="w-4 h-4 text-[var(--text-muted)] shrink-0 mt-0.5" aria-hidden="true" />
+            <div className="min-w-0">
+              <div className="text-[13px] font-medium text-[var(--text)]">Unduh PDF (.pdf)</div>
+              <p className="text-[12px] text-[var(--text-muted)] leading-snug">
+                Laporan owner siap cetak.
               </p>
             </div>
           </button>
 
-          {/* Option 2: Excel for Owner */}
           <button
             type="button"
             role="menuitem"
@@ -123,27 +124,19 @@ export default function ExportMenuButton({
               setOpen(false);
               onExportExcel();
             }}
-            className="w-full flex items-start gap-2.5 px-2.5 py-2 rounded-lg hover:bg-[#d9f3e1]/50 transition-colors cursor-pointer text-left"
+            className="w-full flex items-start gap-2.5 px-2.5 py-2 rounded-md hover:bg-[var(--surface-muted)] transition-colors cursor-pointer text-left"
           >
-            <div className="w-7 h-7 rounded-md bg-[#d9f3e1] text-[#0d5220] flex items-center justify-center shrink-0 mt-0.5">
-              <FileSpreadsheet className="w-4 h-4" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between gap-1">
-                <span className="text-xs font-bold text-[#1a1a1a]">Unduh Excel (.xls)</span>
-                <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-[#d9f3e1] text-[#0d5220]">
-                  Untuk Owner
-                </span>
-              </div>
-              <p className="text-[10px] text-[#5d5b54] leading-snug mt-0.5">
-                Tabel lengkap beserta spesifikasi, catatan & ringkasan total.
+            <FileSpreadsheet className="w-4 h-4 text-[var(--text-muted)] shrink-0 mt-0.5" aria-hidden="true" />
+            <div className="min-w-0">
+              <div className="text-[13px] font-medium text-[var(--text)]">Unduh Excel (.xls)</div>
+              <p className="text-[12px] text-[var(--text-muted)] leading-snug">
+                Tabel lengkap beserta ringkasan.
               </p>
             </div>
           </button>
 
-          <div className="my-1 border-t border-[#f0eee9]" />
+          <div role="separator" className="my-1 h-px bg-[var(--border)]" />
 
-          {/* Option 3: CSV for AI / ML Training */}
           <button
             type="button"
             role="menuitem"
@@ -151,20 +144,13 @@ export default function ExportMenuButton({
               setOpen(false);
               onExportCSV();
             }}
-            className="w-full flex items-start gap-2.5 px-2.5 py-2 rounded-lg hover:bg-[#e6e0f5]/60 transition-colors cursor-pointer text-left"
+            className="w-full flex items-start gap-2.5 px-2.5 py-2 rounded-md hover:bg-[var(--surface-muted)] transition-colors cursor-pointer text-left"
           >
-            <div className="w-7 h-7 rounded-md bg-[#e6e0f5] text-[#391c57] flex items-center justify-center shrink-0 mt-0.5">
-              <Cpu className="w-4 h-4" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between gap-1">
-                <span className="text-xs font-bold text-[#1a1a1a]">Unduh CSV (.csv)</span>
-                <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-[#e6e0f5] text-[#391c57]">
-                  Pelatihan AI
-                </span>
-              </div>
-              <p className="text-[10px] text-[#5d5b54] leading-snug mt-0.5">
-                Dataset Machine Learning (numerik murni, tanpa teks panjang).
+            <Cpu className="w-4 h-4 text-[var(--text-muted)] shrink-0 mt-0.5" aria-hidden="true" />
+            <div className="min-w-0">
+              <div className="text-[13px] font-medium text-[var(--text)]">Unduh CSV (.csv)</div>
+              <p className="text-[12px] text-[var(--text-muted)] leading-snug">
+                Dataset numerik terstruktur.
               </p>
             </div>
           </button>
