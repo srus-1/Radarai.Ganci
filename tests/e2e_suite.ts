@@ -24,7 +24,7 @@ export interface DbOrderRow {
   id: string;
   order_number: string;
   order_date: string;
-  deadline: string;
+  deadline: string | null;
   buyer_name: string;
   buyer_phone: string;
   product_name: string;
@@ -408,7 +408,7 @@ export function mapRowToOrder(row: any): Order {
     id: row.id,
     orderNumber: row.order_number,
     orderDate: row.order_date,
-    deadline: row.deadline,
+    deadline: row.deadline || undefined,
     buyerName: row.buyer_name,
     buyerPhone: row.buyer_phone,
     productName: row.product_name,
