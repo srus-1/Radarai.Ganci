@@ -308,7 +308,6 @@ export function exportOrdersToExcel(orders: Order[], periodLabel = 'Semua Period
       <td>${idx + 1}</td>
       <td>${escapeHtml(o.orderNumber)}</td>
       <td>${escapeHtml(formatDateML(o.orderDate))}</td>
-      <td>${escapeHtml(formatDateML(o.deadline))}</td>
       <td>${escapeHtml(o.buyerName)}</td>
       <td>${escapeHtml(o.buyerPhone)}</td>
       <td>${escapeHtml(o.productName)}</td>
@@ -330,15 +329,14 @@ export function exportOrdersToExcel(orders: Order[], periodLabel = 'Semua Period
 
   const body = `
   <table>
-    <tr><td colspan="19" class="title">LAPORAN PESANAN OWNER — EGANCI (RADARAI.GANCI)</td></tr>
-    <tr><td colspan="19" class="subtitle">Periode / Filter: ${escapeHtml(periodLabel)} | Total Data: ${safeOrders.length} Pesanan</td></tr>
-    <tr><td colspan="19"></td></tr>
+    <tr><td colspan="18" class="title">LAPORAN PESANAN OWNER — EGANCI (RADARAI.GANCI)</td></tr>
+    <tr><td colspan="18" class="subtitle">Periode / Filter: ${escapeHtml(periodLabel)} | Total Data: ${safeOrders.length} Pesanan</td></tr>
+    <tr><td colspan="18"></td></tr>
     <thead>
       <tr>
         <th>No</th>
         <th>No. Pesanan</th>
         <th>Tgl Pesan</th>
-        <th>Deadline</th>
         <th>Pelanggan</th>
         <th>No. WhatsApp</th>
         <th>Produk</th>
@@ -359,7 +357,7 @@ export function exportOrdersToExcel(orders: Order[], periodLabel = 'Semua Period
     <tbody>
       ${rowsHtml}
       <tr class="total-row">
-        <td colspan="8">TOTAL RINGKASAN OWNER</td>
+        <td colspan="7">TOTAL RINGKASAN OWNER</td>
         <td class="num">${totalQty}</td>
         <td>-</td>
         <td class="num">${totalOmzet}</td>

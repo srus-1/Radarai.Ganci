@@ -24,6 +24,12 @@ import OrdersDataView, { OrderSortField } from '@/components/order/OrdersDataVie
 import { EmptyState, ErrorState, SkeletonTable } from '@/components/shared/StateViews';
 import { useToast } from '@/components/shared/ToastProvider';
 import {
+  ORDER_DATE_PRESET_LABELS,
+  OrderDatePreset,
+  matchesOrderDatePreset,
+  sortOrders,
+} from '@/lib/orderFilters';
+import {
   isOrderActionable,
   isOrderUnpaid,
   paymentStatusMeta,
@@ -32,8 +38,6 @@ import {
 import {
   cn,
   formatDateShort,
-  formatRelativeDeadline,
-  parseLocalDate,
 } from '@/lib/utils';
 import {
   downloadCSVFile,
@@ -43,14 +47,6 @@ import {
 } from '@/lib/csvExport';
 
 type StageTab = 'ALL' | 'ANTREAN' | 'IN_PROGRESS' | 'SELESAI';
-type DeadlinePreset = 'OVERDUE' | 'TODAY' | 'TOMORROW' | 'NEXT_7_DAYS' | null;
-
-const PRESET_LABELS: Record<Exclude<DeadlinePreset, null>, string> = {
-  OVERDUE: 'Terlambat',
-  TODAY: 'Hari ini',
-  TOMORROW: 'Besok',
-  NEXT_7_DAYS: '7 hari ke depan',
-};
 
 function SearchParamsPaymentSync({
   onDetectUnpaidFilter,
@@ -67,105 +63,6 @@ function SearchParamsPaymentSync({
   }, [paymentParam, onDetectUnpaidFilter]);
 
   return null;
-}
-
-function sortOrders(
-  list: Order[],
-  sortField: OrderSortField | null,
-  sortDirection: 'asc' | 'desc',
-  useQueueOrder: boolean
-): Order[] {
-  return [...list].sort((a, b) => {
-    if (sortField === 'customer') {
-      const cmp = (a.buyerName || '').localeCompare(b.buyerName || '', 'id-ID');
-      if (cmp !== 0) return sortDirection === 'asc' ? cmp : -cmp;
-      return (a.orderNumber || '').localeCompare(b.orderNumber || '', 'id-ID', { numeric: true });
-    }
-
-    if (sortField === 'pesanan') {
-      const cmp = (a.orderNumber || '').localeCompare(b.orderNumber || '', 'id-ID', {
-        numeric: true,
-      });
-      return sortDirection === 'asc' ? cmp : -cmp;
-    }
-
-    if (sortField === 'qty') {
-      const cmp = (a.qty || 0) - (b.qty || 0);
-      if (cmp !== 0) return sortDirection === 'asc' ? cmp : -cmp;
-      return (a.orderNumber || '').localeCompare(b.orderNumber || '', 'id-ID', { numeric: true });
-    }
-
-    if (sortField === 'deadline') {
-      const dlA = a.deadline || a.orderDate || '9999-12-31';
-      const dlB = b.deadline || b.orderDate || '9999-12-31';
-      const cmp = dlA.localeCompare(dlB);
-      if (cmp !== 0) return sortDirection === 'asc' ? cmp : -cmp;
-      return (b.orderDate || '').localeCompare(a.orderDate || '');
-    }
-
-    if (sortField === 'omzet') {
-      const cmp = (a.omzet || 0) - (b.omzet || 0);
-      if (cmp !== 0) return sortDirection === 'asc' ? cmp : -cmp;
-      return (a.orderNumber || '').localeCompare(b.orderNumber || '');
-    }
-
-    if (useQueueOrder) {
-      return (a.queueOrder || 0) - (b.queueOrder || 0);
-    }
-
-    // Default priority sort: overdue incomplete -> completed unpaid -> nearest deadline -> newest
-    const dueA = formatRelativeDeadline(a.deadline, a.processStatus === 'SELESAI');
-    const dueB = formatRelativeDeadline(b.deadline, b.processStatus === 'SELESAI');
-    if (dueA.isOverdue !== dueB.isOverdue) {
-      return dueA.isOverdue ? -1 : 1;
-    }
-
-    const aDoneUnpaid = a.processStatus === 'SELESAI' && a.paymentStatus !== 'LUNAS';
-    const bDoneUnpaid = b.processStatus === 'SELESAI' && b.paymentStatus !== 'LUNAS';
-    if (aDoneUnpaid !== bDoneUnpaid) {
-      return aDoneUnpaid ? -1 : 1;
-    }
-
-    const aDonePaid = a.processStatus === 'SELESAI' && a.paymentStatus === 'LUNAS';
-    const bDonePaid = b.processStatus === 'SELESAI' && b.paymentStatus === 'LUNAS';
-    if (aDonePaid !== bDonePaid) {
-      return aDonePaid ? 1 : -1;
-    }
-
-    const dlA = a.deadline || '9999-12-31';
-    const dlB = b.deadline || '9999-12-31';
-    if (dlA !== dlB) return dlA.localeCompare(dlB);
-
-    const ordDateA = a.orderDate || a.createdAt || '';
-    const ordDateB = b.orderDate || b.createdAt || '';
-    if (ordDateA !== ordDateB) return ordDateB.localeCompare(ordDateA);
-
-    return (a.queueOrder || 0) - (b.queueOrder || 0);
-  });
-}
-
-function matchesDeadlinePreset(order: Order, preset: DeadlinePreset): boolean {
-  if (!preset) return true;
-  const target = parseLocalDate(order.deadline);
-  if (!target) return false;
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const dueDay = new Date(target.getFullYear(), target.getMonth(), target.getDate());
-  const diffDays = Math.round((dueDay.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-
-  if (preset === 'OVERDUE') {
-    return order.processStatus !== 'SELESAI' && diffDays < 0;
-  }
-  if (preset === 'TODAY') {
-    return diffDays === 0;
-  }
-  if (preset === 'TOMORROW') {
-    return diffDays === 1;
-  }
-  if (preset === 'NEXT_7_DAYS') {
-    return diffDays >= 0 && diffDays <= 7;
-  }
-  return true;
 }
 
 function OrdersPageContent() {
@@ -195,9 +92,9 @@ function OrdersPageContent() {
 
   const [stageTab, setStageTab] = useState<StageTab>('ALL');
   const [onlyUnpaid, setOnlyUnpaid] = useState<boolean>(false);
-  const [deadlinePreset, setDeadlinePreset] = useState<DeadlinePreset>(null);
-  const [deadlineFrom, setDeadlineFrom] = useState<string>('');
-  const [deadlineTo, setDeadlineTo] = useState<string>('');
+  const [orderDatePreset, setOrderDatePreset] = useState<OrderDatePreset>(null);
+  const [orderDateFrom, setOrderDateFrom] = useState<string>('');
+  const [orderDateTo, setOrderDateTo] = useState<string>('');
   const [filterPopoverOpen, setFilterPopoverOpen] = useState<boolean>(false);
   const [filterCoords, setFilterCoords] = useState<{
     top: number;
@@ -337,8 +234,8 @@ function OrdersPageContent() {
     [orders.length, tabCounts.antrean, tabCounts.inProgress, tabCounts.selesai]
   );
 
-  const effectiveFrom = deadlineFrom || dateFilter;
-  const effectiveTo = deadlineTo || dateFilter;
+  const effectiveFrom = orderDateFrom || dateFilter;
+  const effectiveTo = orderDateTo || dateFilter;
 
   const filteredOrders = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -355,10 +252,10 @@ function OrdersPageContent() {
 
       if (onlyUnpaid && o.paymentStatus === 'LUNAS') return false;
 
-      if (deadlinePreset && !matchesDeadlinePreset(o, deadlinePreset)) return false;
+      if (orderDatePreset && !matchesOrderDatePreset(o, orderDatePreset)) return false;
 
-      if (effectiveFrom && (o.deadline || '') < effectiveFrom) return false;
-      if (effectiveTo && (o.deadline || '') > effectiveTo) return false;
+      if (effectiveFrom && (o.orderDate || '') < effectiveFrom) return false;
+      if (effectiveTo && (o.orderDate || '') > effectiveTo) return false;
 
       if (q) {
         const hay = `${o.orderNumber} ${o.buyerName} ${o.buyerPhone} ${o.productName} ${o.specs} ${o.notes ?? ''}`.toLowerCase();
@@ -371,7 +268,7 @@ function OrdersPageContent() {
     orders,
     stageTab,
     onlyUnpaid,
-    deadlinePreset,
+    orderDatePreset,
     effectiveFrom,
     effectiveTo,
     searchQuery,
@@ -393,15 +290,15 @@ function OrdersPageContent() {
 
   const hasPopoverFilter =
     onlyUnpaid ||
-    Boolean(deadlinePreset) ||
-    Boolean(deadlineFrom) ||
-    Boolean(deadlineTo) ||
+    Boolean(orderDatePreset) ||
+    Boolean(orderDateFrom) ||
+    Boolean(orderDateTo) ||
     Boolean(dateFilter);
 
   const activeFilterCount =
     (onlyUnpaid ? 1 : 0) +
-    (deadlinePreset ? 1 : 0) +
-    (deadlineFrom || deadlineTo || dateFilter ? 1 : 0);
+    (orderDatePreset ? 1 : 0) +
+    (orderDateFrom || orderDateTo || dateFilter ? 1 : 0);
 
   // Separate active + unpaid-completed orders at the top and group completed+paid orders
   // into a collapsed tbody section below when on "Semua" tab with no active filter/search.
@@ -550,15 +447,15 @@ function OrdersPageContent() {
   };
 
   const clearDateRange = () => {
-    setDeadlineFrom('');
-    setDeadlineTo('');
+    setOrderDateFrom('');
+    setOrderDateTo('');
     setDateFilter('');
   };
 
   const resetFilters = () => {
     setStageTab('ALL');
     setOnlyUnpaid(false);
-    setDeadlinePreset(null);
+    setOrderDatePreset(null);
     clearDateRange();
     setSearchQuery('');
     setCurrentPage(1);
@@ -576,7 +473,7 @@ function OrdersPageContent() {
   const handleExportOrdersExcel = () => {
     exportOrdersToExcel(
       sortedOrders,
-      effectiveFrom ? `Deadline ${effectiveFrom}` : 'Antrean Pesanan Aktif'
+      effectiveFrom ? `Tgl masuk ${effectiveFrom}` : 'Antrean Pesanan Aktif'
     );
   };
 
@@ -584,7 +481,7 @@ function OrdersPageContent() {
     exportOrdersToPDF(
       sortedOrders,
       'Laporan Antrean Pesanan',
-      effectiveFrom ? `Deadline ${effectiveFrom}` : 'Antrean Aktif'
+      effectiveFrom ? `Tgl masuk ${effectiveFrom}` : 'Antrean Aktif'
     );
   };
 
@@ -602,9 +499,9 @@ function OrdersPageContent() {
   const dateRangeChipLabel = useMemo(() => {
     if (!effectiveFrom && !effectiveTo) return null;
     if (effectiveFrom && effectiveTo && effectiveFrom !== effectiveTo) {
-      return `Deadline: ${formatDateShort(effectiveFrom)} – ${formatDateShort(effectiveTo)}`;
+      return `Tgl masuk: ${formatDateShort(effectiveFrom)} – ${formatDateShort(effectiveTo)}`;
     }
-    return `Deadline: ${formatDateShort(effectiveFrom || effectiveTo)}`;
+    return `Tgl masuk: ${formatDateShort(effectiveFrom || effectiveTo)}`;
   }, [effectiveFrom, effectiveTo]);
 
   const cardToolbarNode = (
@@ -706,26 +603,26 @@ function OrdersPageContent() {
                 </button>
               </div>
 
-              {/* Preset Cepat Deadline */}
+              {/* Preset Cepat Tanggal Masuk */}
               <div>
                 <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-1.5">
-                  Preset Deadline
+                  Preset Tanggal Masuk
                 </div>
                 <div className="grid grid-cols-2 gap-1.5">
                   {(
-                    ['OVERDUE', 'TODAY', 'TOMORROW', 'NEXT_7_DAYS'] as Exclude<
-                      DeadlinePreset,
+                    ['TODAY', 'YESTERDAY', 'LAST_7_DAYS', 'THIS_MONTH'] as Exclude<
+                      OrderDatePreset,
                       null
                     >[]
                   ).map((presetKey) => {
-                    const active = deadlinePreset === presetKey;
+                    const active = orderDatePreset === presetKey;
                     return (
                       <button
                         key={presetKey}
                         type="button"
                         aria-pressed={active}
                         onClick={() => {
-                          setDeadlinePreset(active ? null : presetKey);
+                          setOrderDatePreset(active ? null : presetKey);
                           setCurrentPage(1);
                         }}
                         className={cn(
@@ -735,17 +632,17 @@ function OrdersPageContent() {
                             : 'border-[var(--border)] bg-[var(--surface)] text-[var(--text)] hover:bg-[var(--surface-muted)]'
                         )}
                       >
-                        {PRESET_LABELS[presetKey]}
+                        {ORDER_DATE_PRESET_LABELS[presetKey]}
                       </button>
                     );
                   })}
                 </div>
               </div>
 
-              {/* Rentang Tanggal Deadline (Dari - Sampai) */}
+              {/* Rentang Tanggal Masuk (Dari - Sampai) */}
               <div className="space-y-1.5">
                 <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
-                  Rentang Tanggal Deadline
+                  Rentang Tanggal Masuk
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
@@ -760,7 +657,7 @@ function OrdersPageContent() {
                       type="date"
                       value={effectiveFrom}
                       onChange={(e) => {
-                        setDeadlineFrom(e.target.value);
+                        setOrderDateFrom(e.target.value);
                         setDateFilter('');
                         setCurrentPage(1);
                       }}
@@ -779,7 +676,7 @@ function OrdersPageContent() {
                       type="date"
                       value={effectiveTo}
                       onChange={(e) => {
-                        setDeadlineTo(e.target.value);
+                        setOrderDateTo(e.target.value);
                         setDateFilter('');
                         setCurrentPage(1);
                       }}
@@ -794,7 +691,7 @@ function OrdersPageContent() {
                   type="button"
                   onClick={() => {
                     setOnlyUnpaid(false);
-                    setDeadlinePreset(null);
+                    setOrderDatePreset(null);
                     clearDateRange();
                     setCurrentPage(1);
                   }}
@@ -835,16 +732,16 @@ function OrdersPageContent() {
                 </button>
               </span>
             )}
-            {deadlinePreset && (
+            {orderDatePreset && (
               <span className="inline-flex h-6 items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] pl-2.5 pr-1.5 text-[12px] font-medium text-[var(--text)]">
-                <span>Deadline: {PRESET_LABELS[deadlinePreset]}</span>
+                <span>Tgl masuk: {ORDER_DATE_PRESET_LABELS[orderDatePreset]}</span>
                 <button
                   type="button"
                   onClick={() => {
-                    setDeadlinePreset(null);
+                    setOrderDatePreset(null);
                     setCurrentPage(1);
                   }}
-                  aria-label={`Hapus filter ${PRESET_LABELS[deadlinePreset]}`}
+                  aria-label={`Hapus filter ${ORDER_DATE_PRESET_LABELS[orderDatePreset]}`}
                   className="inline-flex h-4 w-4 items-center justify-center rounded-full hover:bg-[var(--surface-muted)] cursor-pointer"
                 >
                   <X className="w-3 h-3" aria-hidden="true" />
@@ -860,7 +757,7 @@ function OrdersPageContent() {
                     clearDateRange();
                     setCurrentPage(1);
                   }}
-                  aria-label="Hapus filter tanggal deadline"
+                  aria-label="Hapus filter tanggal masuk"
                   className="inline-flex h-4 w-4 items-center justify-center rounded-full hover:bg-[var(--surface-muted)] cursor-pointer"
                 >
                   <X className="w-3 h-3" aria-hidden="true" />

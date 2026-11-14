@@ -134,7 +134,7 @@ function OrderRowCardComponent({
       }`}
     >
       <div className="p-4 sm:p-5 flex flex-col gap-3.5 sm:gap-4">
-        {/* Header: queue + order number + deadline | actions */}
+        {/* Header: queue + order number + order date | actions */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5 shrink-0">
             <input
@@ -162,7 +162,7 @@ function OrderRowCardComponent({
             <span className="font-semibold text-[#1a1a1a] text-sm">{order.orderNumber}</span>
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#f6f5f4] border border-[#e5e3df] text-[11px] text-[#5d5b54]">
               <Calendar className="w-3 h-3 shrink-0" />
-              <span className="font-medium text-[#37352f]">{formatDateShort(order.deadline)}</span>
+              <span className="font-medium text-[#37352f]">{formatDateShort(order.orderDate)}</span>
             </span>
           </div>
 

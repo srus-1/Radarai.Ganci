@@ -33,7 +33,7 @@ import {
   isSupabaseConfigured,
   getSupabaseConfigStatus,
 } from '@/lib/supabase';
-import { calculateHPP, calculateMargin } from '@/lib/utils';
+import { calculateHPP, calculateMargin, toLocalDateString } from '@/lib/utils';
 
 
 /**
@@ -279,7 +279,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       const optimisticOrder: Order = {
         id: tempId,
         orderNumber: `MF${shortYear}${String(previousOrders.length + 1).padStart(3, '0')}`,
-        orderDate: orderData.orderDate || now.toISOString().split('T')[0],
+        orderDate: orderData.orderDate || toLocalDateString(now),
         deadline: orderData.deadline,
         buyerName: orderData.buyerName,
         buyerPhone: orderData.buyerPhone,

@@ -37,6 +37,16 @@ const ID_MONTHS_FULL = [
 ] as const;
 
 /**
+ * Formats a Date into YYYY-MM-DD using local calendar fields to avoid UTC drift.
+ */
+export function toLocalDateString(date: Date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
  * Parses YYYY-MM-DD as a local calendar date so timezone offsets do not shift the day.
  */
 export function parseLocalDate(dateStr: string): Date | null {
@@ -127,49 +137,6 @@ export function formatMonthLabel(monthKey: string, short = false): string {
   if (!y || isNaN(idx) || idx < 0 || idx > 11) return monthKey;
   const list = short ? ID_MONTHS_SHORT : ID_MONTHS_FULL;
   return `${list[idx]} ${y}`;
-}
-
-/**
- * Formats deadline relative to today while keeping overdue severity disabled for completed orders.
- */
-export function formatRelativeDeadline(
-  deadlineStr: string,
-  isCompleted: boolean,
-  referenceDate: Date = new Date()
-): { label: string; tone: 'neutral' | 'amber' | 'red'; isOverdue: boolean; fullDate: string } {
-  const target = parseLocalDate(deadlineStr);
-  const fullDate = formatDateShort(deadlineStr);
-  if (!target) {
-    return { label: '-', tone: 'neutral', isOverdue: false, fullDate: '-' };
-  }
-
-  if (isCompleted) {
-    return { label: fullDate, tone: 'neutral', isOverdue: false, fullDate };
-  }
-
-  const today = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate());
-  const dueDay = new Date(target.getFullYear(), target.getMonth(), target.getDate());
-  const diffDays = Math.round((dueDay.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-
-  if (diffDays < 0) {
-    return {
-      label: `Terlambat ${Math.abs(diffDays)} hr`,
-      tone: 'red',
-      isOverdue: true,
-      fullDate,
-    };
-  }
-  if (diffDays === 0) {
-    return { label: 'Hari ini', tone: 'amber', isOverdue: false, fullDate };
-  }
-  if (diffDays === 1) {
-    return { label: 'Besok', tone: 'amber', isOverdue: false, fullDate };
-  }
-  if (diffDays <= 7) {
-    return { label: `${diffDays} hr lagi`, tone: 'neutral', isOverdue: false, fullDate };
-  }
-
-  return { label: fullDate, tone: 'neutral', isOverdue: false, fullDate };
 }
 
 /**

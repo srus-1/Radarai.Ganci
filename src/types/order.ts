@@ -36,7 +36,7 @@ export interface Order {
   id: string;
   orderNumber: string;
   orderDate: string;
-  deadline: string;
+  deadline?: string;
   buyerName: string;
   buyerPhone: string;
   productName: string;

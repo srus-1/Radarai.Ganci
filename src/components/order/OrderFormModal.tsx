@@ -4,7 +4,7 @@ import React, { useEffect, useId, useRef, useState } from 'react';
 import { AlertTriangle, Calculator, Package, Save, TrendingUp, X } from 'lucide-react';
 import { useOrders } from '@/context/OrderContext';
 import { CreateOrderInput, Order, PaymentStatus, ProcessStatus } from '@/types/order';
-import { calculateHPP, calculateMargin, formatPercent, formatRp } from '@/lib/utils';
+import { calculateHPP, calculateMargin, formatPercent, formatRp, toLocalDateString } from '@/lib/utils';
 import { useToast } from '@/components/shared/ToastProvider';
 
 interface OrderFormContentProps {
@@ -26,7 +26,7 @@ function OrderFormContent({
   const buyerNameId = useId();
   const buyerPhoneId = useId();
   const productNameId = useId();
-  const deadlineId = useId();
+  const orderDateId = useId();
   const specsId = useId();
   const qtyId = useId();
   const priceId = useId();
@@ -61,12 +61,9 @@ function OrderFormContent({
   const [specs, setSpecs] = useState<string>(() => editingOrder?.specs ?? '');
   const [qty, setQty] = useState<number>(() => editingOrder?.qty ?? 0);
   const [pricePerPcs, setPricePerPcs] = useState<number>(() => editingOrder?.pricePerPcs ?? 0);
-  const [deadline, setDeadline] = useState<string>(() => {
-    if (editingOrder?.deadline) return editingOrder.deadline;
-    const nextDate = new Date();
-    nextDate.setDate(nextDate.getDate() + 4);
-    return nextDate.toISOString().split('T')[0];
-  });
+  const [orderDate, setOrderDate] = useState<string>(
+    () => editingOrder?.orderDate || toLocalDateString()
+  );
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>(
     () => editingOrder?.paymentStatus ?? 'DP'
   );
@@ -131,6 +128,10 @@ function OrderFormContent({
       setErrorMsg('Nama produk wajib diisi.');
       return;
     }
+    if (!orderDate.trim()) {
+      setErrorMsg('Tanggal pesanan masuk wajib diisi.');
+      return;
+    }
     if (safeQty <= 0) {
       setErrorMsg('Kuantitas pesanan minimal 1 pcs.');
       return;
@@ -145,13 +146,13 @@ function OrderFormContent({
 
       if (editingOrder) {
         await updateOrder(editingOrder.id, {
+          orderDate: orderDate.trim(),
           buyerName: buyerName.trim(),
           buyerPhone: buyerPhone.trim(),
           productName: productName.trim(),
           specs: specs.trim(),
           qty: safeQty,
           pricePerPcs: safePrice,
-          deadline,
           paymentStatus,
           dpAmount: normalizedDp,
           processStatus,
@@ -161,8 +162,7 @@ function OrderFormContent({
         showToast({ message: `Pesanan ${editingOrder.orderNumber} diperbarui`, tone: 'success' });
       } else {
         await createOrder({
-          orderDate: new Date().toISOString().split('T')[0],
-          deadline,
+          orderDate: orderDate.trim(),
           buyerName: buyerName.trim(),
           buyerPhone: buyerPhone.trim(),
           productName: productName.trim(),
@@ -302,16 +302,17 @@ function OrderFormContent({
 
               <div>
                 <label
-                  htmlFor={deadlineId}
+                  htmlFor={orderDateId}
                   className="block text-[12px] font-medium text-[var(--text-muted)] mb-1"
                 >
-                  Deadline produksi
+                  Tanggal pesanan masuk <span className="text-[var(--status-red-ink)]">*</span>
                 </label>
                 <input
-                  id={deadlineId}
+                  id={orderDateId}
                   type="date"
-                  value={deadline}
-                  onChange={(e) => setDeadline(e.target.value)}
+                  required
+                  value={orderDate}
+                  onChange={(e) => setOrderDate(e.target.value)}
                   className="w-full h-9 px-3 text-[13px] bg-[var(--surface)] border border-[var(--control-border)] rounded-lg text-[var(--text)] tabular-nums"
                 />
               </div>

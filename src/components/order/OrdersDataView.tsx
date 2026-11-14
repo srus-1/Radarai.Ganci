@@ -28,12 +28,12 @@ import {
   cn,
   formatDateShort,
   formatPercent,
-  formatRelativeDeadline,
   formatRp,
   formatUnitQty,
 } from '@/lib/utils';
+import { OrderSortField } from '@/lib/orderFilters';
 
-export type OrderSortField = 'pesanan' | 'customer' | 'qty' | 'deadline' | 'omzet';
+export type { OrderSortField };
 
 const AVATAR_PALETTES = [
   'bg-[#ffe4e6] text-[#be123c] border-[#fecdd3]',
@@ -248,9 +248,6 @@ export default function OrdersDataView({
           <div className="text-[13px] font-semibold text-[#334155] tabular-nums truncate">
             #{order.orderNumber}
           </div>
-          <div className="text-[11.5px] text-[var(--text-muted)] tabular-nums truncate mt-0.5">
-            {formatDateShort(order.orderDate)}
-          </div>
         </div>
       ),
     },
@@ -311,47 +308,22 @@ export default function OrdersDataView({
       ),
     },
     {
-      key: 'deadline',
-      header: 'Deadline',
-      colWidth: '108px',
+      key: 'orderDate',
+      header: 'Tanggal Masuk',
+      colWidth: '126px',
       sortable: Boolean(onSortColumn),
-      sortDirection: sortField === 'deadline' ? sortDirection : null,
-      onSort: onSortColumn ? () => onSortColumn('deadline') : undefined,
+      sortDirection: sortField === 'orderDate' ? sortDirection : null,
+      onSort: onSortColumn ? () => onSortColumn('orderDate') : undefined,
       cellClassName: 'whitespace-nowrap',
       renderCell: (order) => {
-        if (!order.deadline) {
-          return (
-            <div className="leading-tight" title="Tanggal order">
-              <div className="text-[13px] font-medium text-[var(--text)] tabular-nums">
-                {formatDateShort(order.orderDate)}
-              </div>
-              <div className="text-[11px] text-[var(--text-muted)]">Tanggal order</div>
-            </div>
-          );
-        }
-        const isDone = order.processStatus === 'SELESAI';
-        const info = formatRelativeDeadline(order.deadline, isDone);
-        const hasRelativeBadge = info.label !== info.fullDate && info.label !== '-';
+        const formattedDate = formatDateShort(order.orderDate);
         return (
-          <div className="flex flex-col items-start min-w-0 leading-tight" title={`Deadline: ${info.fullDate}`}>
-            <span className="text-[13px] font-medium text-[var(--text)] tabular-nums truncate">
-              {info.fullDate}
-            </span>
-            {hasRelativeBadge && (
-              <span
-                className={cn(
-                  'text-[11px] font-semibold tabular-nums truncate mt-0.5',
-                  info.tone === 'red'
-                    ? 'text-[var(--status-red-ink)]'
-                    : info.tone === 'amber'
-                      ? 'text-[var(--status-amber-ink)]'
-                      : 'text-[var(--text-muted)]'
-                )}
-              >
-                {info.label}
-              </span>
-            )}
-          </div>
+          <span
+            className="text-[13px] font-medium text-[var(--text)] tabular-nums truncate"
+            title={`Tanggal pesanan masuk: ${formattedDate}`}
+          >
+            {formattedDate}
+          </span>
         );
       },
     },
@@ -568,7 +540,6 @@ export default function OrdersDataView({
       renderMobileCard={(order, { isSelected, isExpanded }) => {
         const payMeta = paymentStatusMeta(order.paymentStatus);
         const prodMeta = productionStatusMeta(order.processStatus);
-        const dueInfo = formatRelativeDeadline(order.deadline, order.processStatus === 'SELESAI');
         const showStep = order.processStatus !== 'SELESAI';
 
         return (
@@ -578,7 +549,7 @@ export default function OrdersDataView({
               isSelected && 'border-[var(--accent)] bg-[var(--accent-tint)]/75 shadow-[inset_3px_0_0_0_var(--accent)]'
             )}
           >
-            {/* Row 1: Checkbox + Customer Bold · ID + Deadline */}
+            {/* Row 1: Checkbox + Customer Bold · ID + Tanggal Masuk */}
             <div className="flex items-center justify-between gap-2 leading-tight">
               <div className="flex items-center gap-1.5 min-w-0">
                 <label className="touch-target-44 inline-flex items-center justify-center shrink-0 cursor-pointer">
@@ -610,17 +581,8 @@ export default function OrdersDataView({
                 </button>
               </div>
 
-              <span
-                className={cn(
-                  'text-[12px] tabular-nums shrink-0',
-                  dueInfo.tone === 'red'
-                    ? 'font-semibold text-[var(--status-red-ink)]'
-                    : dueInfo.tone === 'amber'
-                      ? 'font-medium text-[var(--status-amber-ink)]'
-                      : 'text-[var(--text-muted)]'
-                )}
-              >
-                {dueInfo.label}
+              <span className="text-[12px] font-medium text-[var(--text-muted)] tabular-nums shrink-0">
+                {formatDateShort(order.orderDate)}
               </span>
             </div>
 

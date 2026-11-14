@@ -15,7 +15,7 @@ import {
   RawMaterialEntry,
   CreateRawMaterialInput,
 } from '@/types/capex';
-import { calculateHPP, calculateMargin, parseLocalDate } from './utils';
+import { calculateHPP, calculateMargin, parseLocalDate, toLocalDateString } from './utils';
 
 // ============================================================================
 // Supabase Configuration Status Detection
@@ -106,7 +106,7 @@ export interface DbOrderRow {
   id: string;
   order_number: string;
   order_date: string;
-  deadline: string;
+  deadline: string | null;
   buyer_name: string;
   buyer_phone: string;
   product_name: string;
@@ -167,7 +167,7 @@ export function mapDbOrderToDomain(row: DbOrderRow): Order {
     id: row.id,
     orderNumber: row.order_number,
     orderDate: row.order_date,
-    deadline: row.deadline,
+    deadline: row.deadline || undefined,
     buyerName: row.buyer_name,
     buyerPhone: row.buyer_phone,
     productName: row.product_name,
@@ -312,6 +312,7 @@ export const orderService = {
     }
 
     const now = new Date();
+    const orderDate = newOrderData.orderDate || toLocalDateString(now);
     const year = now.getFullYear();
     const shortYear = String(year).slice(-2);
     const prefix = `MF${shortYear}`;
@@ -321,7 +322,7 @@ export const orderService = {
       const fallbackOrder: Order = {
         id: `ord-${Date.now()}`,
         orderNumber: `${prefix}${String(Math.floor(Math.random() * 900) + 100)}`,
-        orderDate: newOrderData.orderDate || now.toISOString().split('T')[0],
+        orderDate,
         deadline: newOrderData.deadline,
         buyerName: newOrderData.buyerName,
         buyerPhone: newOrderData.buyerPhone,
@@ -389,8 +390,8 @@ export const orderService = {
 
     const dbPayload = {
       order_number: orderNumber,
-      order_date: newOrderData.orderDate || now.toISOString().split('T')[0],
-      deadline: newOrderData.deadline,
+      order_date: orderDate,
+      deadline: newOrderData.deadline ?? null,
       buyer_name: newOrderData.buyerName,
       buyer_phone: newOrderData.buyerPhone,
       product_name: newOrderData.productName,
@@ -415,11 +416,26 @@ export const orderService = {
       notes: newOrderData.notes || null,
     };
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('orders')
       .insert(dbPayload)
       .select('*, order_design_files(*)')
       .single();
+
+    // Compatibility fallback if live DB has not yet applied DROP NOT NULL on deadline
+    if (
+      error &&
+      dbPayload.deadline === null &&
+      (error.code === '23502' || /deadline/i.test(`${error.message || ''} ${error.details || ''}`))
+    ) {
+      const retry = await supabase
+        .from('orders')
+        .insert({ ...dbPayload, deadline: orderDate })
+        .select('*, order_design_files(*)')
+        .single();
+      data = retry.data;
+      error = retry.error;
+    }
 
     if (error) {
       console.error('Error inserting order into Supabase:', error);
