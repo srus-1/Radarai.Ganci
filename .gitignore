@@ -59,4 +59,10 @@ next-env.d.ts
 /screenshot-*.png
 /Screenshot*.png
 /Referensi.jpg
+/.vscode/
+/.cursor/
+/.windsurf/
+/playwright-report/
+/test-results/
+*.log
 
